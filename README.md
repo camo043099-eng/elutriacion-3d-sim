@@ -7,6 +7,7 @@ Simulación interactiva en 3D y en tiempo real de un **elutriador hidráulico de
 * **En el navegador:** abre el enlace de GitHub Pages del repositorio (sección *Environments / Pages*).
 * **En local:** descarga el repositorio completo (*Code → Download ZIP*), descomprímelo y abre `index.html` con doble clic en Chrome, Edge, Firefox o Safari.
   * Las ecuaciones (KaTeX) y la telemetría están incluidas en el repositorio y funcionan sin conexión.
+  * `index.html` necesita la carpeta `js/` a su lado (contiene el motor físico); si falta, la página lo indica.
   * El motor 3D (Three.js r128) se carga desde un CDN, por lo que la vista 3D necesita internet. Sin conexión, la página lo indica y el resto sigue funcionando.
   * La cámara en vivo del escáner necesita el permiso del navegador; en el móvil funciona abriendo la página desde GitHub Pages (`https://`).
 
@@ -102,7 +103,7 @@ La densidad del sólido puede variar entre $500$ y $7500\ \mathrm{kg/m^3}$. Si $
 
 ### 9. Esfericidad
 
-Cuando se usa un sólido escaneado, la esfericidad media de Wadell ($\psi$) medida en la imagen corrige el diámetro equivalente de las partículas ($d_{\mathrm{eq}} = d_p \sqrt{\psi}$) y su velocidad de sedimentación, de modo que los granos irregulares sedimentan más lento que esferas del mismo tamaño.
+Cuando se usa un sólido escaneado, el escáner estima la esfericidad $\psi$ a partir de la circularidad 2D de los granos en la imagen ($4\pi A / P^2$), que es una aproximación de la esfericidad de Wadell (definida en 3D). Con ella se calcula un diámetro equivalente $d_{\mathrm{eq}} = d_p \sqrt{\psi}$, que es el que usa el simulador para cada partícula: así los granos irregulares sedimentan más lento que esferas del mismo tamaño aparente. Esta corrección es una aproximación propia del simulador, no una correlación de la bibliografía.
 
 ---
 
@@ -158,7 +159,7 @@ El botón **📷 Escanear Sólido** abre un módulo que mide la distribución de
 3. Se obtienen el número de partículas $N$, los percentiles $d_{10}$, $d_{50}$ y $d_{90}$, la esfericidad media y un histograma de tamaños.
 4. Se proponen los cortes $d_{pc1} = P_{67}$ y $d_{pc2} = P_{33}$, que dividen la muestra en tres fracciones similares.
 
-**Receta de elutriación:** con la densidad elegida para el sólido (biomasa, polipropileno, nylon, carbón, cuarzo, caliza, barita, magnetita o galena), el escáner calcula a partir de la Ley de Stokes las velocidades ascendentes necesarias ($v_{f1}$, $v_{f2}$), el caudal $Q$ para la columna 1 y el diámetro $D_2$ requerido para la segunda etapa, e indica si conviene activar la corrección para $Re_p > 1$. Si el sólido es más ligero que el agua, advierte que flotará.
+**Receta de elutriación:** con la densidad elegida para el sólido (biomasa, polipropileno, nylon, carbón, cuarzo, caliza, barita, magnetita o galena), el escáner calcula $Q$, $D_1$ y $D_2$ con **las mismas ecuaciones del simulador** (función `designRecipe` de `js/sim.js`): usa la Ley de Stokes y, si $Re_p > 1$, la corrección de Schiller–Naumann. Mantiene $D_1 = 5.95$ cm siempre que el caudal quede entre 0.50 y 4.00 L/min; si no, ajusta $D_1$ (4–9 cm) para lograr el corte. Si algún valor queda fuera del rango del equipo, lo avisa y muestra los cortes que realmente se obtendrán. Si el sólido es más ligero que el agua, advierte que flotará.
 
 **Conectar al simulador:** el botón **🚀 Conectar Datos al Simulador 3D y Ejecutar Elutriación** aplica la receta (caudal, diámetros, densidad y corrección), reemplaza la alimentación por la distribución de tamaños medida y lanza un pulso. Mientras está activo se muestra el aviso *Sólido Escaneado Activo*; **Restaurar alimentación estándar** vuelve a la distribución uniforme de 15 – 145 µm.
 
@@ -175,8 +176,10 @@ node tests/contencion.test.js
 Las pruebas verifican:
 * Los valores del caso base: $v_{f1} = 8.99$ mm/s, $v_{f2} = 2.25$ mm/s, $d_{pc1} = 100.0\ \mu\mathrm{m}$, $d_{pc2} = 50.0\ \mu\mathrm{m}$ y $Re_{p1} \approx 0.90$; con galena, $d_{pc1} \approx 50.4\ \mu\mathrm{m}$.
 * Que la corrección de Schiller–Naumann reduzca la velocidad terminal y sea coherente con el diámetro de corte calculado.
-* Que **ninguna partícula salga** de columnas, conos, reductores, tuberías, tolva, colectores o tanque en distintos escenarios: caudales extremos, sólidos de alta densidad como la galena, perfil parabólico, dispersión, cambio de diámetros durante la operación y reinicio de pulso.
+* Que **ninguna partícula salga** de columnas, conos, reductores, tuberías, tolva, colectores o tanque en distintos escenarios: caudales extremos, sólidos densos (galena) y ligeros (biomasa, polipropileno), perfil parabólico, dispersión, cambio de diámetros durante la operación y reinicio de pulso.
 * Que con flujo pistón la clasificación sea prácticamente perfecta y que el perfil parabólico reduzca la nitidez del corte.
+* Que con un **sólido escaneado** cada partícula se mueva con la velocidad terminal de su propio diámetro, y que lo medido coincida con lo teórico.
+* Que la **receta del escáner** sea coherente con el simulador (mismas $v_f$ y $d_{pc}$), respete los rangos de los controles y avise cuando no pueda lograr un corte.
 
 ---
 

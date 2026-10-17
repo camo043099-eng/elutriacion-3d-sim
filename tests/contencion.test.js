@@ -158,7 +158,9 @@ const scenarios = [
   ['Dispersión axial + parabólico', { dispersion: true, parabolic: true }, 0.05],
   ['Arrastre 4 L/min, galena, μ 0.5, D1 4 cm, D2 18 cm', { Q_Lmin: 4, rho_p: 7500, mu_mPas: 0.5, D1_cm: 4, D2_cm: 18 }, 0.05],
   ['0.5 L/min, ρ 1500, μ 3.5, D1 9 cm, D2 8 cm', { Q_Lmin: 0.5, rho_p: 1500, mu_mPas: 3.5, D1_cm: 9, D2_cm: 8 }, 1 / 30],
-  ['Corrección Schiller–Naumann a 4 L/min', { Q_Lmin: 4, reCorrection: true, dispersion: true }, 1 / 60]
+  ['Corrección Schiller–Naumann a 4 L/min', { Q_Lmin: 4, reCorrection: true, dispersion: true }, 1 / 60],
+  ['Biomasa 500 kg/m³ (flota)', { rho_p: 500 }, 1 / 60],
+  ['Polipropileno 910 kg/m³ + parabólico + dispersión', { rho_p: 910, parabolic: true, dispersion: true }, 0.05]
 ];
 scenarios.forEach(([label, st, dt], i) => {
   check(label, () => runScenario(label, Object.assign({}, D, st), 45, dt, 1000 + i));
@@ -188,6 +190,95 @@ check('Perfil parabólico reduce la nitidez del corte', () => {
   const a = runScenario('pistón', Object.assign({}, D), 90, 1 / 30, 9).stats().efficiency;
   const b = runScenario('parabólico', Object.assign({}, D, { parabolic: true }), 90, 1 / 30, 9).stats().efficiency;
   assert.ok(b < a, `parabólico ${b.toFixed(3)} no es menor que pistón ${a.toFixed(3)}`);
+});
+
+console.log('\nSólido escaneado (alimentación personalizada)');
+// Muestra "escaneada" con tamaños fuera del rango estándar y esfericidad < 1
+const scanRng = mulberry32(321);
+const scanned = Array.from({ length: 60 }, () => 30 + scanRng() * 140);
+const PSI = 0.81;
+check('Cada partícula se mueve con la v_t de SU diámetro escaneado', () => {
+  const sim = new S.Simulation({ rng: mulberry32(11) });
+  sim.setCustomFeed(scanned, PSI);
+  sim.resetPulse();
+  const allowed = new Set(scanned.map(d => (d * Math.sqrt(PSI)).toFixed(6)));
+  for (let i = 0; i < 3600; i++) {
+    sim.step(1 / 60);
+    if (i % 30) continue;
+    for (const p of sim.particles) {
+      const vt = S.terminalVelocity(p.d * 1e-6, sim.state);
+      assert.ok(Math.abs(p.vt - vt) <= 1e-9 + 1e-6 * Math.abs(vt), `v_t no corresponde al diámetro (${p.d.toFixed(1)} µm)`);
+      assert.ok(allowed.has(p.d.toFixed(6)), `diámetro ${p.d} no pertenece a la muestra escaneada`);
+      assert.ok(violation(sim, p) <= TOL, 'partícula fuera del equipo: ' + p.stage);
+    }
+  }
+});
+check('Con sólido escaneado, lo medido coincide con lo teórico (±8 puntos)', () => {
+  const sim = new S.Simulation({ rng: mulberry32(12) });
+  sim.setCustomFeed(scanned, PSI);
+  sim.setParams({ Q_Lmin: 1.2, D2_cm: 10 });
+  sim.resetPulse();
+  for (let i = 0; i < 150 * 30; i++) sim.step(1 / 30);
+  const st = sim.stats(), th = sim.model.theory;
+  for (let k = 0; k < 3; k++) {
+    assert.ok(Math.abs(st.fractions[k] - th[k]) <= 0.08,
+      `salida ${k}: medido ${(st.fractions[k] * 100).toFixed(0)} % vs teórico ${(th[k] * 100).toFixed(0)} %`);
+  }
+  assert.ok(st.efficiency >= 0.95, 'eficiencia ' + st.efficiency);
+});
+check('Restaurar alimentación estándar vuelve a 15–145 µm', () => {
+  const sim = new S.Simulation({ rng: mulberry32(13) });
+  sim.setCustomFeed([300, 310, 320], 1);
+  sim.clearCustomFeed();
+  for (let i = 0; i < 600; i++) sim.step(1 / 30);
+  for (const p of sim.particles) {
+    assert.ok(p.d >= S.D_MIN_UM && p.d <= S.D_MAX_UM, 'diámetro ' + p.d);
+    assert.ok(Math.abs(p.vt - S.terminalVelocity(p.d * 1e-6, sim.state)) < 1e-12);
+  }
+});
+
+console.log('\nReceta del escáner');
+function recipeConsistent(r, base) {
+  // Lo que muestra la receta debe ser exactamente lo que hará el simulador
+  const m = S.computeModel(Object.assign({}, S.DEFAULT_STATE, base, {
+    Q_Lmin: r.Q_Lmin, D1_cm: r.D1_cm, D2_cm: r.D2_cm, reCorrection: r.reCorrection, rho_p: base.rho_p }));
+  for (let c = 0; c < 2; c++) {
+    assert.ok(Math.abs(m.vf[c] - r.vf[c]) < 1e-12, 'v_f de la receta ≠ simulador');
+    assert.ok(Math.abs(m.dpc_um[c] - r.dpc_um[c]) < 1e-9, 'd_pc de la receta ≠ simulador');
+  }
+  assert.ok(r.Q_Lmin >= 0.5 && r.Q_Lmin <= 4 && r.D1_cm >= 4 && r.D1_cm <= 9 && r.D2_cm >= 8 && r.D2_cm <= 18, 'fuera de rango');
+}
+check('Cuarzo: cortes logrados ≈ objetivo, sin avisos', () => {
+  const base = Object.assign({}, S.DEFAULT_STATE, { rho_p: 2650 });
+  const r = S.designRecipe({ dUpper_um: 102, dLower_um: 64, sphericity: 1, rho_p: 2650 }, base);
+  recipeConsistent(r, base);
+  assert.strictEqual(r.warnings.length, 0);
+  assert.ok(Math.abs(r.dpc_um[0] - 102) < 1.5 && Math.abs(r.dpc_um[1] - 64) < 1.5, r.dpc_um.join(' / '));
+});
+check('Galena (Re_p > 1): usa Schiller–Naumann y logra los cortes', () => {
+  const base = Object.assign({}, S.DEFAULT_STATE, { rho_p: 7500 });
+  const r = S.designRecipe({ dUpper_um: 91, dLower_um: 50, sphericity: 1, rho_p: 7500 }, base);
+  recipeConsistent(r, base);
+  assert.ok(r.reCorrection, 'debería activar la corrección');
+  assert.ok(Math.abs(r.dpc_um[0] - 91) < 1.5 && Math.abs(r.dpc_um[1] - 50) < 1.5, r.dpc_um.join(' / '));
+});
+check('Caudal fuera de rango: ajusta D1, avisa y sigue logrando el corte', () => {
+  const base = Object.assign({}, S.DEFAULT_STATE, { rho_p: 7500 });
+  const r = S.designRecipe({ dUpper_um: 140, dLower_um: 60, sphericity: 1, rho_p: 7500 }, base);
+  recipeConsistent(r, base);
+  assert.ok(r.warnings.length > 0, 'debe avisar');
+  assert.ok(r.D1_cm < 5.95, 'debería reducir D1');
+  assert.ok(Math.abs(r.dpc_um[0] - 140) < 2.5, r.dpc_um[0]);
+});
+check('Objetivo imposible: avisa y la receta sigue siendo coherente', () => {
+  const base = Object.assign({}, S.DEFAULT_STATE, { rho_p: 2650 });
+  const r = S.designRecipe({ dUpper_um: 15, dLower_um: 8, sphericity: 1, rho_p: 2650 }, base);
+  recipeConsistent(r, base);
+  assert.ok(r.warnings.length > 0);
+});
+check('Sólido más ligero que el agua: la receta indica flotación', () => {
+  const r = S.designRecipe({ dUpper_um: 100, dLower_um: 50, rho_p: 500 }, S.DEFAULT_STATE);
+  assert.ok(r.floats);
 });
 
 console.log(failures ? `\n${failures} prueba(s) fallaron\n` : '\nTodas las pruebas pasaron\n');

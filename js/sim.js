@@ -361,7 +361,6 @@
     this.model = computeModel(this.state, this.customFeed);
     if (geometryChanged || !this.geo) this.geo = buildGeometry(this.state);
     for (const p of this.particles) {
-      if (p._scannedDpUm !== undefined) p.d = p._scannedDpUm;
       p.rad = particleRadius(p.d);
       p.vt = terminalVelocity(p.d * 1e-6, this.state);
       p.cls = this.classOf(p.d);
@@ -398,7 +397,6 @@
       const p = this.particles[i];
       const dEff = diameters_um[i % diameters_um.length] * sqrtPsi;
       p.d = dEff;
-      p._scannedDpUm = dEff;
       p.rad = particleRadius(p.d);
     }
     this._refresh(false);
@@ -411,7 +409,6 @@
     this.customFeed.diameters_um = [];
     this.customFeed.sphericity = 1.0;
     for (const p of this.particles) {
-      delete p._scannedDpUm;
       this._redraw(p);
     }
     this._refresh(false);
@@ -443,12 +440,7 @@
   };
 
   Simulation.prototype._redraw = function (p) {
-    if (p._scannedDpUm !== undefined && (!this.customFeed || !this.customFeed.active)) {
-      p.d = p._scannedDpUm;
-    } else {
-      p.d = this._sampleDiameterUm();
-      if (this.customFeed && this.customFeed.active) p._scannedDpUm = p.d;
-    }
+    p.d = this._sampleDiameterUm();
     p.rad = particleRadius(p.d);
     p.vt = terminalVelocity(p.d * 1e-6, this.state);
     p.cls = this.classOf(p.d);
@@ -593,13 +585,6 @@
     const L = LAYOUT, s = this.state, geo = this.geo;
 
     for (const p of this.particles) {
-      // Sincronizar si el conector de cámara en index.html asignó un diámetro escaneado
-      if (p._scannedDpUm !== undefined && Math.abs(p.d - p._scannedDpUm) > 1e-4) {
-        p.d = p._scannedDpUm;
-        p.rad = particleRadius(p.d);
-        p.vt = terminalVelocity(p.d * 1e-6, s);
-        p.cls = this.classOf(p.d);
-      }
 
       switch (p.stage) {
         // --------------------------------------------- Tolva de alimentación
@@ -749,11 +734,90 @@
     }
   };
 
+  // ---------------------------------------------------------------------------
+  // 6. RECETA DE ELUTRIACIÓN PARA UN SÓLIDO ESCANEADO
+  // ---------------------------------------------------------------------------
+  /** Rangos de operación permitidos por los controles del simulador. */
+  const LIMITS = {
+    Q_Lmin: [0.50, 4.00, 0.05],   // [mín, máx, paso]
+    D1_cm: [4.00, 9.00, 0.05],
+    D2_cm: [8.00, 18.00, 0.10],
+    D1_DEFAULT: 5.95
+  };
+
+  const snap = (v, [lo, hi, step]) => Number(clamp(Math.round(v / step) * step, lo, hi).toFixed(2));
+  const areaFromD = D_cm => Math.PI * Math.pow(D_cm / 100, 2) / 4;      // m²
+  const dFromArea = A => Math.sqrt(4 * A / Math.PI) * 100;               // cm
+
+  /**
+   * Calcula Q, D1 y D2 para que los cortes de las columnas coincidan con los
+   * diámetros objetivo (p. ej. P67 y P33 de la muestra escaneada), usando EXACTAMENTE
+   * las mismas ecuaciones que el simulador (Stokes o Schiller–Naumann si Re_p > 1).
+   * Si algún valor queda fuera del rango de los controles, se ajusta y se avisa.
+   *
+   * @param {{dUpper_um:number, dLower_um:number, sphericity?:number, rho_p:number}} sample
+   * @param {object} base estado actual (μ, ρ_f, g)
+   */
+  function designRecipe(sample, base) {
+    const psi = clamp(sample.sphericity || 1, 0.4, 1);
+    const sq = Math.sqrt(psi);
+    const st = Object.assign({}, DEFAULT_STATE, base, {
+      rho_p: clamp(sample.rho_p, RHO_MIN, RHO_MAX), sphericity: 1, reCorrection: false
+    });
+    const target = [Math.max(1, sample.dUpper_um) * sq, Math.max(1, sample.dLower_um) * sq]; // d_eq (µm)
+    const warnings = [];
+
+    if (st.rho_p <= st.rho_f) {
+      return { floats: true, target_um: target, warnings,
+               Q_Lmin: base.Q_Lmin, D1_cm: base.D1_cm, D2_cm: base.D2_cm, reCorrection: false };
+    }
+
+    const mu = st.mu_mPas * 1e-3;
+    // 1) Velocidades ascendentes que igualan v_t de los diámetros objetivo
+    let vf = target.map(d => Math.abs(terminalVelocity(d * 1e-6, st)));
+    const reStokes = (st.rho_f * vf[0] * target[0] * 1e-6) / mu;
+    const reCorrection = reStokes > 1;
+    if (reCorrection) {
+      st.reCorrection = true;
+      vf = target.map(d => Math.abs(terminalVelocity(d * 1e-6, st)));
+    }
+
+    // 2) Columna 1: se mantiene D1 de diseño; si Q queda fuera de rango, se ajusta D1
+    let D1 = LIMITS.D1_DEFAULT;
+    let Q = vf[0] * areaFromD(D1) * 60000;             // L/min
+    if (Q > LIMITS.Q_Lmin[1] || Q < LIMITS.Q_Lmin[0]) {
+      Q = clamp(Q, LIMITS.Q_Lmin[0], LIMITS.Q_Lmin[1]);
+      D1 = dFromArea((Q / 60000) / vf[0]);
+      if (D1 < LIMITS.D1_cm[0] || D1 > LIMITS.D1_cm[1]) {
+        warnings.push(`El corte de la columna 1 pide un caudal fuera del rango del equipo (${LIMITS.Q_Lmin[0]}–${LIMITS.Q_Lmin[1]} L/min) incluso ajustando D₁; se usa el valor más cercano posible.`);
+      } else {
+        warnings.push(`Para lograr el corte con un caudal dentro de ${LIMITS.Q_Lmin[0]}–${LIMITS.Q_Lmin[1]} L/min se ajustó el diámetro de la columna 1.`);
+      }
+    }
+    Q = snap(Q, LIMITS.Q_Lmin);
+    D1 = snap(dFromArea((Q / 60000) / vf[0]), LIMITS.D1_cm);
+
+    // 3) Columna 2: diámetro que da la velocidad del segundo corte con ese mismo Q
+    const D2ideal = dFromArea((Q / 60000) / vf[1]);
+    const D2 = snap(D2ideal, LIMITS.D2_cm);
+    if (D2ideal < LIMITS.D2_cm[0] || D2ideal > LIMITS.D2_cm[1]) {
+      warnings.push(`El segundo corte pide D₂ = ${D2ideal.toFixed(1)} cm, fuera del rango del equipo (${LIMITS.D2_cm[0]}–${LIMITS.D2_cm[1]} cm); se usa ${D2.toFixed(1)} cm.`);
+    }
+
+    // 4) Resultado real con el modelo del simulador
+    const finalState = Object.assign({}, st, { Q_Lmin: Q, D1_cm: D1, D2_cm: D2, reCorrection });
+    const m = computeModel(finalState);
+    return {
+      floats: false, Q_Lmin: Q, D1_cm: D1, D2_cm: D2, reCorrection,
+      vf: m.vf, dpc_um: m.dpc_um, re: m.re, target_um: target, warnings
+    };
+  }
+
   const api = {
-    LAYOUT, VEL_SCALE, PIPE_SPEED, D_MIN_UM, D_MAX_UM, RHO_MIN, RHO_MAX, OUTLET_NAMES, DEFAULT_STATE,
+    LAYOUT, VEL_SCALE, PIPE_SPEED, D_MIN_UM, D_MAX_UM, RHO_MIN, RHO_MAX, OUTLET_NAMES, DEFAULT_STATE, LIMITS,
     particleRadius, makePath, pipePosition, buildGeometry,
     columnRadiusAt, hopperRadiusAt, columnMaxOffset, hopperMaxOffset, terminalVelocity, cutDiameter, computeModel,
-    Simulation
+    designRecipe, Simulation
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

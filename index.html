@@ -874,7 +874,7 @@
               <div class="sub" id="scan-kpi-d1090"><span class="msym">d<sub>10</sub></span>: — | <span class="msym">d<sub>90</sub></span>: —</div>
             </div>
             <div class="kpi-card">
-              <div class="label">Esfericidad de Wadell (<span class="msym">&psi;</span>)</div>
+              <div class="label">Esfericidad estimada (<span class="msym">&psi;</span>)</div>
               <div class="value" id="scan-kpi-psi" style="color: #f472b6;">—</div>
               <div class="sub">Circularidad 4<span class="msym">&pi;A</span> / <span class="msym">P</span>²</div>
             </div>
@@ -928,150 +928,6 @@
 
   <!-- Motor físico (sin dependencias) -->
   <script src="js/sim.js"></script>
-  <script>
-    // Respaldo integrado por si se ejecuta el HTML sin el archivo externo js/sim.js
-    if (typeof window.ElutriationSim === 'undefined') {
-      window.ElutriationSim = (function () {
-        const LAYOUT = {
-          COL_X: [-5.0, 3.2], TANK_X: 10.2,
-          COL_TOP: 5.5, COL_BOTTOM: -3.0, CONE_BOTTOM: -5.0,
-          REDUCER_TOP: 6.2, POT_TOP: -5.0, POT_BOTTOM: -6.4, POT_FLOOR: -6.6,
-          CONE_OUTLET_R: [0.35, 0.40], PIPE_R: 0.22, POT_R: 0.72,
-          HOPPER_R: 0.85, HOPPER_TOP: 5.2, HOPPER_BOTTOM: 3.9,
-          INLET_Y: -2.6, TANK_R: 1.65, TANK_TOP: 2.2, TANK_BOTTOM: -2.6, TANK_FLOOR: -2.6
-        };
-        class SimplePath {
-          constructor(pts) {
-            this.pts = pts; this.seg = []; this.length = 0;
-            for (let i = 0; i < pts.length - 1; i++) {
-              const l = Math.hypot(pts[i+1][0]-pts[i][0], pts[i+1][1]-pts[i][1], pts[i+1][2]-pts[i][2]);
-              this.seg.push(l); this.length += l;
-            }
-          }
-          pointAt(dist) {
-            let d = Math.max(0, Math.min(this.length, dist));
-            for (let i = 0; i < this.seg.length; i++) {
-              if (d <= this.seg[i] || i === this.seg.length - 1) {
-                const t = this.seg[i] > 0 ? d / this.seg[i] : 0;
-                const a = this.pts[i], b = this.pts[i+1];
-                return [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t];
-              }
-              d -= this.seg[i];
-            }
-            return this.pts[this.pts.length - 1];
-          }
-        }
-        class Simulation {
-          constructor(opts) {
-            this.count = (opts && opts.count) || 480;
-            this.state = { Q_Lmin: 1.5, rho_p: 2650, rho_f: 1000, mu_mPas: 1.0, D1_cm: 5.95, D2_cm: 11.9, g: 9.81, parabolic: false, dispersion: false, reCorrection: false };
-            this.model = { Q: 0, mu: 0.001, D: [0.0595, 0.119], vf: [0, 0], dpc_um: [100, 50], re: [0, 0], theory: [0.33, 0.33, 0.34] };
-            this.geo = { R: [1.19, 2.38], cx: [-5.0, 3.2], feedX: -7.8, paths: {} };
-            this.particles = []; this.tracers = []; this.history = [];
-            this.updateGeometry(); this.updateModel();
-            for (let i = 0; i < this.count; i++) { const p = {}; this.spawn(p, true); this.particles.push(p); }
-            for (let i = 0; i < 90; i++) { this.tracers.push({ col: i < 45 ? 0 : 1, angle: Math.random()*Math.PI*2, rFrac: Math.sqrt(Math.random())*0.85, y: -2.8+Math.random()*8.2, x:0, z:0 }); }
-          }
-          vt(dp_m) {
-            const s = this.state, mu = s.mu_mPas * 1e-3, dRho = Math.abs(s.rho_p - s.rho_f) || 10;
-            const sign = s.rho_p >= s.rho_f ? 1 : -1;
-            const vt0 = (s.g * dp_m * dp_m * dRho) / (18 * mu);
-            if (!s.reCorrection) return sign * vt0;
-            let v = vt0;
-            for (let k = 0; k < 6; k++) { const re = (s.rho_f * v * dp_m) / mu; v = vt0 / (1 + 0.15 * Math.pow(Math.max(1e-6, re), 0.687)); }
-            return sign * v;
-          }
-          updateGeometry() {
-            const r1 = (this.state.D1_cm / 2) * 0.4, r2 = (this.state.D2_cm / 2) * 0.4;
-            this.geo.R = [r1, r2]; this.geo.feedX = LAYOUT.COL_X[0] - r1 - 1.7;
-            this.geo.paths = {
-              feed: new SimplePath([[this.geo.feedX, LAYOUT.HOPPER_BOTTOM, 0], [this.geo.feedX, 1.8, 0], [LAYOUT.COL_X[0], 1.2, 0]]),
-              c1ToC2: new SimplePath([[LAYOUT.COL_X[0], LAYOUT.REDUCER_TOP, 0], [LAYOUT.COL_X[0], 7.1, 0], [LAYOUT.COL_X[1], 7.1, 0], [LAYOUT.COL_X[1], -1.8, 0]]),
-              c2ToTank: new SimplePath([[LAYOUT.COL_X[1], LAYOUT.REDUCER_TOP, 0], [LAYOUT.COL_X[1], 7.0, 0], [LAYOUT.TANK_X, 7.0, 0], [LAYOUT.TANK_X, LAYOUT.TANK_TOP - 0.3, 0]])
-            };
-          }
-          updateModel() {
-            const s = this.state, Q = (s.Q_Lmin / 1000) / 60, mu = s.mu_mPas * 1e-3;
-            const D1 = s.D1_cm / 100, D2 = s.D2_cm / 100;
-            const vf1 = Q / (Math.PI * Math.pow(D1/2, 2)), vf2 = Q / (Math.PI * Math.pow(D2/2, 2));
-            const dRho = Math.max(10, Math.abs(s.rho_p - s.rho_f));
-            const solveDpc = vf => {
-              if (!s.reCorrection) return Math.sqrt((18 * mu * vf) / (s.g * dRho)) * 1e6;
-              let lo = 1e-6, hi = 2e-3;
-              for (let i = 0; i < 25; i++) { const mid = 0.5*(lo+hi); if (Math.abs(this.vt(mid)) < vf) lo = mid; else hi = mid; }
-              return 0.5*(lo+hi)*1e6;
-            };
-            const dpc1 = solveDpc(vf1), dpc2 = solveDpc(vf2);
-            const re1 = (s.rho_f * vf1 * dpc1 * 1e-6) / mu, re2 = (s.rho_f * vf2 * dpc2 * 1e-6) / mu;
-            if (s.rho_p <= s.rho_f) {
-              this.model = { Q, mu, D: [D1, D2], vf: [vf1, vf2], dpc_um: [dpc1, dpc2], re: [re1, re2], theory: [0, 0, 1] };
-              return;
-            }
-            const span = 130, f0 = Math.max(0, Math.min(1, (145 - dpc1) / span)), f2 = Math.max(0, Math.min(1, (dpc2 - 15) / span));
-            this.model = { Q, mu, D: [D1, D2], vf: [vf1, vf2], dpc_um: [dpc1, dpc2], re: [re1, re2], theory: [f0, Math.max(0, 1 - f0 - f2), f2] };
-          }
-          setParams(p) {
-            const d1 = this.state.D1_cm, d2 = this.state.D2_cm;
-            Object.assign(this.state, p);
-            const ch = (d1 !== this.state.D1_cm || d2 !== this.state.D2_cm);
-            if (ch) this.updateGeometry();
-            this.updateModel(); this.history.length = 0;
-            return ch;
-          }
-          spawn(p, init) {
-            p.dp_um = 15 + Math.random() * 130; p.angle = Math.random() * Math.PI * 2; p.rFrac = Math.sqrt(Math.random()) * 0.85;
-            p.stage = init ? (Math.random() < 0.5 ? 'col1' : 'col2') : 'col1'; p.dist = 0; p.hold = 0;
-            const c = p.stage === 'col2' ? 1 : 0;
-            p.y = init ? (-2.2 + Math.random() * 7.2) : (0.8 + (Math.random() - 0.5) * 1.2);
-            p.x = this.geo.cx[c] + Math.cos(p.angle) * p.rFrac * this.geo.R[c];
-            p.z = Math.sin(p.angle) * p.rFrac * this.geo.R[c];
-            p.cls = this.state.rho_p <= this.state.rho_f ? 2 : (p.dp_um >= this.model.dpc_um[0] ? 0 : (p.dp_um >= this.model.dpc_um[1] ? 1 : 2));
-            p.rad = 0.045 + Math.min(1.2, p.dp_um / 145) * 0.11;
-          }
-          resetPulse() { this.history.length = 0; for (const p of this.particles) this.spawn(p, false); }
-          step(dt) {
-            const S = 250;
-            for (const p of this.particles) {
-              p.cls = this.state.rho_p <= this.state.rho_f ? 2 : (p.dp_um >= this.model.dpc_um[0] ? 0 : (p.dp_um >= this.model.dpc_um[1] ? 1 : 2));
-              p.rad = 0.045 + Math.min(1.2, p.dp_um / 145) * 0.11;
-              const vt = this.vt(p.dp_um * 1e-6);
-              const prof = this.state.parabolic ? (2.0 * (1 - p.rFrac * p.rFrac)) : 1.0;
-              const noise = this.state.dispersion ? ((Math.random() - 0.5) * 0.004) : 0;
-              if (p.stage === 'col1' || p.stage === 'col2') {
-                const c = p.stage === 'col1' ? 0 : 1;
-                p.y += (this.model.vf[c] * prof - vt + noise) * S * dt;
-                p.angle += (c === 0 ? 0.35 : 0.22) * dt;
-                const R = this.geo.R[c] * p.rFrac;
-                p.x = this.geo.cx[c] + Math.cos(p.angle) * R; p.z = Math.sin(p.angle) * R;
-                if (p.y >= LAYOUT.REDUCER_TOP) { p.stage = c === 0 ? 'c1ToC2' : 'c2ToTank'; p.dist = 0; }
-                else if (p.y <= LAYOUT.POT_TOP) { p.stage = c === 0 ? 'pot1' : 'pot2'; p.hold = 0; this.history.push({ cls: p.cls, out: c }); if (this.history.length > 240) this.history.shift(); }
-              } else if (p.stage === 'c1ToC2' || p.stage === 'c2ToTank') {
-                const path = this.geo.paths[p.stage]; p.dist += dt * 7.5;
-                const pt = path.pointAt(p.dist); p.x = pt[0]; p.y = pt[1]; p.z = pt[2];
-                if (p.dist >= path.length) {
-                  if (p.stage === 'c1ToC2') { p.stage = 'col2'; p.y = -1.6; }
-                  else { p.stage = 'tank'; p.hold = 0; this.history.push({ cls: p.cls, out: 2 }); if (this.history.length > 240) this.history.shift(); }
-                }
-              } else { p.hold += dt; p.y -= dt * 0.25; if (p.hold > 1.6) this.spawn(p, false); }
-            }
-            for (const t of this.tracers) {
-              const c = t.col; t.y += this.model.vf[c] * S * 1.25 * dt;
-              if (t.y > LAYOUT.COL_TOP) t.y = LAYOUT.COL_BOTTOM;
-              t.x = this.geo.cx[c] + Math.cos(t.angle) * t.rFrac * this.geo.R[c];
-              t.z = Math.sin(t.angle) * t.rFrac * this.geo.R[c];
-            }
-          }
-          stats() {
-            const n = this.history.length; if (!n) return { n: 0, fractions: [0,0,0], efficiency: 1 };
-            const c = [0,0,0]; let ok = 0;
-            for (const h of this.history) { c[h.out]++; if (h.cls === h.out) ok++; }
-            return { n, fractions: c.map(x => x / n), efficiency: ok / n };
-          }
-        }
-        return { LAYOUT, Simulation };
-      })();
-    }
-  </script>
 
   <!-- Three.js r128 + OrbitControls por CDN, con CDN de respaldo -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -1087,12 +943,21 @@
     'use strict';
 
     const SIM = window.ElutriationSim;
+    if (!SIM) {
+      // Falta js/sim.js: no se usa una copia simplificada del motor (no respetaría las paredes)
+      const box = document.getElementById('webgl-error');
+      box.innerHTML = '<strong>Falta el motor físico (js/sim.js).</strong><br />' +
+        'Descarga el repositorio completo (Code → Download ZIP) y abre index.html desde la carpeta descomprimida, sin moverlo de su lugar.';
+      box.style.display = 'block';
+      return;
+    }
     const L = SIM.LAYOUT;
     const sim = new SIM.Simulation({ count: 480 });
     const $ = id => document.getElementById(id);
 
     // =========================================================================
-    // CONECTOR EN TIEMPO REAL: DATOS DE CÁMARA -> MOTOR FÍSICO 3D (sim.js)
+    // CONECTOR: DATOS DE CÁMARA -> MOTOR FÍSICO (sim.setCustomFeed)
+    // El motor asigna a cada partícula su diámetro escaneado Y recalcula su v_t.
     // =========================================================================
     const scannedSolid = {
       active: false,
@@ -1101,89 +966,6 @@
       d10: 0,
       d50: 0,
       d90: 0
-    };
-
-    function assignParticleDiameter(p, dp_um) {
-      let assigned = false;
-      for (const k of ['dp_um', 'd_um', 'dp', 'd', 'diameter']) {
-        if (k in p) {
-          p[k] = (k === 'd' && p[k] < 0.01) ? (dp_um * 1e-6) : dp_um;
-          assigned = true;
-        }
-      }
-      if (!assigned) p.dp_um = dp_um;
-      p._scannedDpUm = dp_um;
-      const isFloating = sim.state.rho_p <= sim.state.rho_f;
-      p.cls = isFloating ? 2 : (dp_um >= sim.model.dpc_um[0] ? 0 : (dp_um >= sim.model.dpc_um[1] ? 1 : 2));
-      p.rad = 0.045 + Math.min(1.25, dp_um / 145) * 0.11;
-    }
-
-    function syncScannedTheory() {
-      if (sim.state.rho_p <= sim.state.rho_f) {
-        sim.model.theory = [0, 0, 1];
-        return;
-      }
-      if (!scannedSolid.active || !scannedSolid.diameters_um.length) return;
-      const dpc1 = sim.model.dpc_um[0], dpc2 = sim.model.dpc_um[1];
-      const sqrtPsi = Math.sqrt(scannedSolid.sphericity);
-      let c0 = 0, c1 = 0, c2 = 0;
-      for (const rawD of scannedSolid.diameters_um) {
-        const dEff = rawD * sqrtPsi;
-        if (dEff >= dpc1) c0++;
-        else if (dEff >= dpc2) c1++;
-        else c2++;
-      }
-      const tot = scannedSolid.diameters_um.length;
-      sim.model.theory = [c0 / tot, c1 / tot, c2 / tot];
-    }
-
-    function applyScannedSampleToParticles() {
-      if (!scannedSolid.active || !scannedSolid.diameters_um.length) return;
-      const arr = scannedSolid.diameters_um;
-      const sqrtPsi = Math.sqrt(scannedSolid.sphericity);
-      for (let i = 0; i < sim.particles.length; i++) {
-        const dEff = arr[i % arr.length] * sqrtPsi;
-        assignParticleDiameter(sim.particles[i], dEff);
-      }
-      syncScannedTheory();
-    }
-
-    const origSetParams = sim.setParams.bind(sim);
-    sim.setParams = function (partial) {
-      const geomChanged = origSetParams(partial);
-      // Si la densidad es menor o igual a la del agua, corregir modelo usando |Δρ|
-      if (sim.state.rho_p <= sim.state.rho_f) {
-        const mu = sim.state.mu_mPas * 1e-3;
-        const absDRho = Math.max(10, Math.abs(sim.state.rho_p - sim.state.rho_f));
-        sim.model.dpc_um[0] = Math.sqrt((18 * mu * sim.model.vf[0]) / (sim.state.g * absDRho)) * 1e6;
-        sim.model.dpc_um[1] = Math.sqrt((18 * mu * sim.model.vf[1]) / (sim.state.g * absDRho)) * 1e6;
-        sim.model.theory = [0, 0, 1];
-      }
-      if (scannedSolid.active) syncScannedTheory();
-      return geomChanged;
-    };
-
-    const origResetPulse = sim.resetPulse.bind(sim);
-    sim.resetPulse = function () {
-      origResetPulse();
-      if (scannedSolid.active) applyScannedSampleToParticles();
-    };
-
-    const origStep = sim.step.bind(sim);
-    sim.step = function (dt) {
-      if (scannedSolid.active) {
-        for (let i = 0; i < sim.particles.length; i++) {
-          const p = sim.particles[i];
-          if (p._scannedDpUm !== undefined) assignParticleDiameter(p, p._scannedDpUm);
-        }
-      }
-      origStep(dt);
-      if (scannedSolid.active) {
-        for (let i = 0; i < sim.particles.length; i++) {
-          const p = sim.particles[i];
-          if (p._scannedDpUm !== undefined) assignParticleDiameter(p, p._scannedDpUm);
-        }
-      }
     };
 
     // =========================================================================
@@ -1601,25 +1383,12 @@
         }
       });
 
-      const mu = sim.state.mu_mPas * 1e-3;
+      // Receta calculada con las MISMAS ecuaciones del simulador (js/sim.js → designRecipe)
       const rawDRho = rho_p - sim.state.rho_f;
-      const absDRho = Math.max(10, Math.abs(rawDRho));
-      const gAcc = sim.state.g;
-
-      const dpc1_m = Math.max(25, d67) * 1e-6 * Math.sqrt(meanPsi);
-      const dpc2_m = Math.max(12, d33) * 1e-6 * Math.sqrt(meanPsi);
-
-      const vf1 = (gAcc * dpc1_m * dpc1_m * absDRho) / (18 * mu);
-      const vf2 = (gAcc * dpc2_m * dpc2_m * absDRho) / (18 * mu);
-
-      const D1_cm = 5.95;
-      const A1 = Math.PI * Math.pow((D1_cm / 100) / 2, 2);
-      const Q_m3s = vf1 * A1;
-      const Q_Lmin = Math.max(0.50, Math.min(4.00, Q_m3s * 1000 * 60));
-
-      const A2 = Q_m3s / Math.max(1e-5, vf2);
-      const D2_cm = Math.max(8.0, Math.min(18.0, Math.sqrt((4 * A2) / Math.PI) * 100));
-      const re1 = (sim.state.rho_f * vf1 * dpc1_m) / mu;
+      const recipe = SIM.designRecipe(
+        { dUpper_um: Math.max(25, d67), dLower_um: Math.max(12, d33), sphericity: meanPsi, rho_p },
+        sim.state
+      );
 
       $('val-scan-fov').textContent = `${fov_mm.toFixed(2)} mm`;
       $('val-scan-thresh').textContent = `${thresh}`;
@@ -1638,11 +1407,17 @@
             • Para separar estas fracciones (<span class="msym">d<sub>50</sub></span> = <b>${d50.toFixed(1)} µm</b>, <span class="msym">&psi;</span> = <b>${meanPsi.toFixed(2)}</b>) se requiere elutriación inversa (flujo descendente) o un fluido de menor densidad.
           `;
         } else {
+          const r = recipe;
+          const eqNote = meanPsi < 0.995 ? ' (diámetro equivalente <span class="msym">d<sub>p</sub>&radic;&psi;</span>)' : '';
+          const warn = r.warnings.length
+            ? `<div style="color: var(--warn); margin-top: 6px;">⚠️ ${r.warnings.join('<br/>⚠️ ')}<br/>Cortes que se obtendrán realmente: <b>${r.dpc_um[0].toFixed(0)} µm</b> y <b>${r.dpc_um[1].toFixed(0)} µm</b> (objetivo: ${r.target_um[0].toFixed(0)} y ${r.target_um[1].toFixed(0)} µm).</div>`
+            : '';
           $('scan-recipe-box').innerHTML = `
             <strong>Procedimiento de Elutriación Calculado:</strong><br/>
-            • <b>Etapa 1 (Columna 1, <span class="msym">D<sub>1</sub></span> = ${D1_cm.toFixed(2)} cm):</b> Inyectar agua a <b><span class="msym">Q</span> = ${Q_Lmin.toFixed(2)} L/min</b> (<span class="msym">v<sub>f1</sub></span> = ${(vf1*1000).toFixed(2)} mm/s) para sedimentar los gruesos mayores a <b>${d67.toFixed(0)} µm</b>.<br/>
-            • <b>Etapa 2 (Columna 2, <span class="msym">D<sub>2</sub></span> = ${D2_cm.toFixed(2)} cm):</b> Reducir la velocidad superficial a <b><span class="msym">v<sub>f2</sub></span> = ${(vf2*1000).toFixed(2)} mm/s</b> para capturar medios entre <b>${d33.toFixed(0)} y ${d67.toFixed(0)} µm</b>.<br/>
-            • <b>Morfología y Régimen:</b> <span class="msym">&psi;</span> = <b>${meanPsi.toFixed(2)}</b> | <span class="msym">Re<sub>p1</sub></span> = <b>${re1.toFixed(2)}</b> (${re1 > 1 ? 'Activar corrección Schiller–Naumann' : 'Régimen laminar de Stokes válido'}).
+            • <b>Etapa 1 (Columna 1, <span class="msym">D<sub>1</sub></span> = ${r.D1_cm.toFixed(2)} cm):</b> Inyectar agua a <b><span class="msym">Q</span> = ${r.Q_Lmin.toFixed(2)} L/min</b> (<span class="msym">v<sub>f1</sub></span> = ${(r.vf[0] * 1000).toFixed(2)} mm/s) para sedimentar los gruesos mayores a <b>${r.dpc_um[0].toFixed(0)} µm</b>${eqNote}.<br/>
+            • <b>Etapa 2 (Columna 2, <span class="msym">D<sub>2</sub></span> = ${r.D2_cm.toFixed(2)} cm):</b> La velocidad superficial baja a <b><span class="msym">v<sub>f2</sub></span> = ${(r.vf[1] * 1000).toFixed(2)} mm/s</b> para capturar medios entre <b>${r.dpc_um[1].toFixed(0)} y ${r.dpc_um[0].toFixed(0)} µm</b>.<br/>
+            • <b>Morfología y Régimen:</b> <span class="msym">&psi;</span> = <b>${meanPsi.toFixed(2)}</b> | <span class="msym">Re<sub>p1</sub></span> = <b>${r.re[0].toFixed(2)}</b> (${r.reCorrection ? 'se activa la corrección de Schiller–Naumann' : 'régimen de Stokes válido'}).
+            ${warn}
           `;
         }
       } else {
@@ -1655,11 +1430,11 @@
         diameters: sorted,
         sphericity: meanPsi,
         d10, d50, d90,
-        Q_Lmin: Number(Q_Lmin.toFixed(2)),
-        D1_cm: Number(D1_cm.toFixed(2)),
-        D2_cm: Number(D2_cm.toFixed(2)),
+        Q_Lmin: recipe.Q_Lmin,
+        D1_cm: recipe.D1_cm,
+        D2_cm: recipe.D2_cm,
         rho_p,
-        reCorrection: re1 > 1.0
+        reCorrection: recipe.reCorrection
       };
     }
 
@@ -1789,6 +1564,8 @@
         rho_p: currentPrescription.rho_p,
         reCorrection: currentPrescription.reCorrection
       });
+      // El motor asigna los diámetros escaneados y recalcula v_t de cada partícula
+      sim.setCustomFeed(scannedSolid.diameters_um, scannedSolid.sphericity);
       syncSliders();
       sim.resetPulse();
       updateUI();
@@ -1803,7 +1580,7 @@
 
     $('btn-restore-uniform').addEventListener('click', () => {
       scannedSolid.active = false;
-      for (const p of sim.particles) delete p._scannedDpUm;
+      sim.clearCustomFeed();
       $('badge-scan-live').style.display = 'none';$('scanned-status-card').style.display = 'none';
       apply({ Q_Lmin: sim.state.Q_Lmin });
       sim.resetPulse();
