@@ -307,5 +307,34 @@ check('Sólido más ligero que el agua: la receta indica flotación', () => {
   assert.ok(r.floats);
 });
 
+console.log('\nConfiguración compartida entre vista 3D y modo AR (URL)');
+check('Ida y vuelta conserva parámetros, efectos y sólido escaneado', () => {
+  const st = Object.assign({}, S.DEFAULT_STATE, { Q_Lmin: 2.35, rho_p: 4500, mu_mPas: 1.4, D1_cm: 6.1, D2_cm: 13.2, parabolic: true, reCorrection: true });
+  const feed = { active: true, diameters_um: [40.12, 55.5, 80, 120.4, 150], sphericity: 0.83 };
+  const out = S.decodeConfig('?' + S.encodeConfig(st, feed));
+  for (const k of ['Q_Lmin', 'rho_p', 'mu_mPas', 'D1_cm', 'D2_cm']) assert.strictEqual(out.state[k], st[k], k);
+  assert.strictEqual(out.state.parabolic, true);
+  assert.strictEqual(out.state.reCorrection, true);
+  assert.ok(!out.state.dispersion);
+  assert.deepStrictEqual(out.feed.diameters_um, [40.1, 55.5, 80, 120.4, 150]);
+  assert.strictEqual(out.feed.sphericity, 0.83);
+});
+check('Valores inválidos o fuera de rango se descartan o se acotan', () => {
+  const out = S.decodeConfig('?Q=99&rho=abc&mu=-3&D1=1&D2=50&feed=1_2&psi=7');
+  assert.strictEqual(out.state.Q_Lmin, 4);
+  assert.ok(!('rho_p' in out.state));
+  assert.strictEqual(out.state.mu_mPas, 0.5);
+  assert.strictEqual(out.state.D1_cm, 4);
+  assert.strictEqual(out.state.D2_cm, 18);
+  assert.strictEqual(out.feed, null);        // menos de 3 diámetros
+});
+check('Muestras escaneadas grandes se limitan para que la URL no crezca sin control', () => {
+  const big = { active: true, diameters_um: Array.from({ length: 2500 }, (_, i) => 20 + (i % 130)), sphericity: 1 };
+  const qs = S.encodeConfig(S.DEFAULT_STATE, big);
+  const out = S.decodeConfig(qs);
+  assert.ok(out.feed.diameters_um.length <= 400 && out.feed.diameters_um.length >= 300);
+  assert.ok(qs.length < 4000, 'URL de ' + qs.length + ' caracteres');
+});
+
 console.log(failures ? `\n${failures} prueba(s) fallaron\n` : '\nTodas las pruebas pasaron\n');
 process.exit(failures ? 1 : 0);

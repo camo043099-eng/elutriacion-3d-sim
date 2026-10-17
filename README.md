@@ -16,6 +16,8 @@ Simulación interactiva en 3D y en tiempo real de un **elutriador hidráulico de
 | Archivo | Contenido |
 |---|---|
 | `index.html` | Interfaz, vista 3D (Three.js), ecuaciones en vivo (KaTeX) y escáner granulométrico |
+| `ar.html` | Modo de Realidad Aumentada: el elutriador aparece sobre el marcador HIRO (A-Frame 1.3.0 + AR.js 3.4.5) |
+| `marcador-hiro.html`, `assets/hiro.png` | Marcador HIRO listo para imprimir o descargar |
 | `js/sim.js` | Motor físico sin dependencias: hidrodinámica, geometría del equipo y movimiento de partículas |
 | `tests/contencion.test.js` | Pruebas automáticas del modelo físico y de la contención de partículas |
 | `vendor/katex/` | KaTeX local para renderizar ecuaciones (licencia MIT) |
@@ -165,6 +167,23 @@ El botón **📷 Escanear Sólido** abre un módulo que mide la distribución de
 
 ---
 
+## 🥽 Modo de Realidad Aumentada (marcador HIRO)
+
+El botón **🥽 Modo AR (Hiro)** abre `ar.html`, que muestra el mismo elutriador, con la misma física, sobre un marcador impreso, usando la cámara del celular.
+
+**Qué se necesita:**
+* Abrir la página desde **GitHub Pages** (`https://`). Si se abre el archivo directamente en el celular, el navegador no permite usar la cámara. En Android se recomienda Chrome actualizado.
+* El **marcador HIRO**: el botón **🖨️ Marcador** abre `marcador-hiro.html`, donde se elige el tamaño (8 cm recomendado) y se imprime a escala real, con el margen blanco alrededor que la cámara necesita para reconocerlo. También puede mostrarse en la pantalla de otro dispositivo.
+
+**Cómo funciona:**
+* La configuración actual de la vista 3D (caudal, densidad, viscosidad, $D_1$, $D_2$, efectos y sólido escaneado) se pasa al modo AR por la dirección de la página, y al volver con **⬅️ Vista 3D** se conserva lo que se haya cambiado en AR.
+* **Modo Mesa** (marcador plano sobre la mesa) o **Modo Pared** (marcador vertical): el equipo queda centrado sobre el marcador, apoyado en una base de su mismo tamaño.
+* Pestañas del panel: **Operación** ($Q$, $\rho_p$, $\mu$, $D_1$, $D_2$), **Efectos** (perfil parabólico, dispersión, corrección para $Re_p > 1$, líneas de flujo y tamaño del holograma) y **Resultados** (fracciones teórica y medida, y eficiencia con el mismo criterio de régimen estacionario que la vista 3D).
+* La simulación **se pausa mientras la cámara no ve el marcador**, para ahorrar batería y no alterar la medición.
+* Si A-Frame o AR.js no se pueden descargar, o la cámara está bloqueada, la página muestra un aviso con la solución.
+
+---
+
 ## 🧪 Pruebas automáticas
 
 Con [Node.js](https://nodejs.org) instalado, desde la carpeta del repositorio:
@@ -180,6 +199,7 @@ Las pruebas verifican:
 * Que la eficiencia **no** se dé por válida mientras solo han llegado los gruesos, y que al declararse estacionaria las fracciones medidas se parezcan a las teóricas.
 * Que con flujo pistón la clasificación sea prácticamente perfecta y que el perfil parabólico reduzca la nitidez del corte.
 * Que con un **sólido escaneado** cada partícula se mueva con la velocidad terminal de su propio diámetro, y que lo medido coincida con lo teórico.
+* Que la configuración pasada entre la vista 3D y el modo AR se conserve completa, descarte valores inválidos y no genere direcciones demasiado largas.
 * Que la **receta del escáner** sea coherente con el simulador (mismas $v_f$ y $d_{pc}$), respete los rangos de los controles y avise cuando no pueda lograr un corte.
 
 ---

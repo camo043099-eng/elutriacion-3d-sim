@@ -598,7 +598,8 @@
     </div>
     <div class="camera-controls">
       <button class="btn scan-btn" id="btn-open-scanner">📷 Escanear Sólido</button>
-      <a href="ar.html" class="btn scan-btn" style="text-decoration: none;">🥽 Modo AR (Hiro)</a>
+      <a href="ar.html" id="btn-ar" class="btn scan-btn" style="text-decoration: none;">🥽 Modo AR (Hiro)</a>
+      <a href="marcador-hiro.html" target="_blank" rel="noopener" class="btn" style="text-decoration: none;">🖨️ Marcador</a>
       <button class="btn cam-btn active" data-view="overview">Vista General 3D</button>
       <button class="btn cam-btn" data-view="col1">Enfocar Columna 1</button>
       <button class="btn cam-btn" data-view="col2">Enfocar Columna 2</button>
@@ -1878,7 +1879,42 @@
     }));
 
     // =========================================================================
-    // 4. BUCLE PRINCIPAL
+    // 4. CONFIGURACIÓN COMPARTIDA CON EL MODO AR (por la dirección URL)
+    // =========================================================================
+    $('btn-ar').addEventListener('click', e => {
+      e.currentTarget.href = 'ar.html?' + SIM.encodeConfig(sim.state, sim.customFeed);
+    });
+
+    (function loadConfigFromUrl() {
+      if (!location.search) return;
+      const cfg = SIM.decodeConfig(location.search);
+      if (Object.keys(cfg.state).length) apply(cfg.state);
+      if (cfg.feed) {
+        const sorted = cfg.feed.diameters_um.slice().sort((a, b) => a - b);
+        const at = q => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
+        scannedSolid.active = true;
+        scannedSolid.diameters_um = cfg.feed.diameters_um.slice();
+        scannedSolid.sphericity = cfg.feed.sphericity;
+        scannedSolid.d10 = at(0.10);
+        scannedSolid.d50 = at(0.50);
+        scannedSolid.d90 = at(0.90);
+        sim.setCustomFeed(scannedSolid.diameters_um, scannedSolid.sphericity);
+        $('badge-scan-live').style.display = 'inline-block';
+        $('scanned-status-card').style.display = 'block';
+        $('scanned-status-desc').innerHTML =
+          `<span class="msym">N</span> = <b>${sorted.length}</b> granos | <span class="msym">d<sub>50</sub></span> = <b>${scannedSolid.d50.toFixed(1)} µm</b> | <span class="msym">&psi;</span> = <b>${scannedSolid.sphericity.toFixed(2)}</b>`;
+      }
+      syncSliders();
+      $('chk-parabolic').checked = !!sim.state.parabolic;
+      $('chk-dispersion').checked = !!sim.state.dispersion;
+      $('chk-recorr').checked = !!sim.state.reCorrection;
+      sim.resetPulse();
+      // Limpia la dirección para que recargar no repita la configuración
+      try { history.replaceState(null, '', location.pathname); } catch (e) { /* sin efecto */ }
+    })();
+
+    // =========================================================================
+    // 5. BUCLE PRINCIPAL
     // =========================================================================
     updateUI();
 

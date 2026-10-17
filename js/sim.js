@@ -871,7 +871,61 @@
     };
   }
 
+  // ---------------------------------------------------------------------------
+  // 7. COMPARTIR CONFIGURACIÓN ENTRE PÁGINAS (index.html ⇄ ar.html) POR LA URL
+  // ---------------------------------------------------------------------------
+  const CONFIG_KEYS = [
+    // [parámetro URL, clave del estado, mín, máx]
+    ['Q', 'Q_Lmin', LIMITS.Q_Lmin[0], LIMITS.Q_Lmin[1]],
+    ['rho', 'rho_p', RHO_MIN, RHO_MAX],
+    ['mu', 'mu_mPas', 0.5, 3.5],
+    ['D1', 'D1_cm', LIMITS.D1_cm[0], LIMITS.D1_cm[1]],
+    ['D2', 'D2_cm', LIMITS.D2_cm[0], LIMITS.D2_cm[1]]
+  ];
+  const CONFIG_FLAGS = [['par', 'parabolic'], ['disp', 'dispersion'], ['re', 'reCorrection']];
+  const MAX_FEED = 400;   // máx. diámetros escaneados transmitidos
+
+  /** Convierte el estado (y el sólido escaneado, si hay) en una cadena de consulta URL. */
+  function encodeConfig(state, customFeed) {
+    const q = new URLSearchParams();
+    for (const [k, key] of CONFIG_KEYS) q.set(k, String(Number(state[key].toFixed(2))));
+    for (const [k, key] of CONFIG_FLAGS) if (state[key]) q.set(k, '1');
+    if (customFeed && customFeed.active && customFeed.diameters_um.length) {
+      const arr = customFeed.diameters_um;
+      const step = Math.max(1, Math.ceil(arr.length / MAX_FEED));
+      const pick = [];
+      for (let i = 0; i < arr.length; i += step) pick.push(Number(arr[i].toFixed(1)));
+      q.set('feed', pick.join('_'));
+      q.set('psi', String(Number((customFeed.sphericity || 1).toFixed(3))));
+    }
+    return q.toString();
+  }
+
+  /**
+   * Lee una cadena de consulta URL. Devuelve { state, feed } con valores
+   * validados y acotados a los rangos del simulador (ignora lo que no sirve).
+   */
+  function decodeConfig(search) {
+    const q = new URLSearchParams(search || '');
+    const state = {};
+    for (const [k, key, lo, hi] of CONFIG_KEYS) {
+      if (!q.has(k)) continue;
+      const v = parseFloat(q.get(k));
+      if (Number.isFinite(v)) state[key] = clamp(v, lo, hi);
+    }
+    for (const [k, key] of CONFIG_FLAGS) if (q.has(k)) state[key] = q.get(k) === '1';
+    let feed = null;
+    if (q.has('feed')) {
+      const diameters = q.get('feed').split('_').map(parseFloat)
+        .filter(d => Number.isFinite(d) && d > 0 && d < 5000).slice(0, MAX_FEED);
+      const psi = parseFloat(q.get('psi'));
+      if (diameters.length >= 3) feed = { diameters_um: diameters, sphericity: Number.isFinite(psi) ? clamp(psi, 0.4, 1) : 1 };
+    }
+    return { state, feed };
+  }
+
   const api = {
+    encodeConfig, decodeConfig,
     LAYOUT, VEL_SCALE, PIPE_SPEED, D_MIN_UM, D_MAX_UM, RHO_MIN, RHO_MAX, OUTLET_NAMES, DEFAULT_STATE, LIMITS, STEADY,
     particleRadius, makePath, pipePosition, buildGeometry,
     columnRadiusAt, hopperRadiusAt, columnMaxOffset, hopperMaxOffset, terminalVelocity, cutDiameter, computeModel,

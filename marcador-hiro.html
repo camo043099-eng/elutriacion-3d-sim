@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Marcador HIRO para imprimir</title>
+  <style>
+    @page { size: A4; margin: 15mm; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: #fff;
+      color: #0f172a;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px;
+    }
+    .tools {
+      max-width: 640px;
+      width: 100%;
+      font-size: 0.9rem;
+      line-height: 1.5;
+      margin-bottom: 18px;
+    }
+    .tools h1 { font-size: 1.2rem; margin: 0 0 8px; }
+    .tools ul { margin: 6px 0 12px; padding-left: 20px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    button, a.btn {
+      background: #0f172a;
+      color: #fff;
+      border: 0;
+      border-radius: 8px;
+      padding: 9px 14px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    a.btn.ghost { background: #e2e8f0; color: #0f172a; }
+    select { font-size: 0.9rem; padding: 7px; border-radius: 8px; }
+
+    /* El marcador necesita un margen blanco alrededor del borde negro */
+    .sheet {
+      background: #fff;
+      padding: var(--quiet, 15mm);
+      border: 1px dashed #cbd5e1;
+    }
+    .sheet img {
+      display: block;
+      width: var(--size, 8cm);
+      height: var(--size, 8cm);
+      image-rendering: pixelated;
+    }
+    .caption { margin-top: 8px; font-size: 0.8rem; color: #475569; text-align: center; }
+
+    @media print {
+      .tools { display: none; }
+      body { padding: 0; }
+      .sheet { border: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="tools">
+    <h1>Marcador HIRO para el modo de Realidad Aumentada</h1>
+    <ul>
+      <li>Imprímelo <b>sin ajustar a la página</b> («Tamaño real» o escala 100 %).</li>
+      <li>Deja el <b>margen blanco</b> alrededor del cuadro negro: sin él, la cámara no lo reconoce.</li>
+      <li>Usa papel mate y colócalo plano. Evita reflejos y sombras sobre el marcador.</li>
+      <li>También puedes mostrarlo en la pantalla de otro dispositivo con el brillo alto.</li>
+    </ul>
+    <div class="row">
+      <label>Tamaño del marcador:
+        <select id="size">
+          <option value="6cm">6 cm</option>
+          <option value="8cm" selected>8 cm (recomendado)</option>
+          <option value="12cm">12 cm</option>
+          <option value="16cm">16 cm</option>
+        </select>
+      </label>
+      <button onclick="window.print()">🖨️ Imprimir</button>
+      <a class="btn ghost" href="assets/hiro.png" download="marcador-hiro.png">⬇️ Descargar imagen</a>
+      <a class="btn ghost" href="ar.html">🥽 Ir al modo AR</a>
+    </div>
+  </div>
+
+  <div class="sheet" id="sheet">
+    <img src="assets/hiro.png" alt="Marcador HIRO" />
+  </div>
+  <div class="caption" id="caption">Lado del cuadro negro: 8 cm</div>
+
+  <script>
+    const sel = document.getElementById('size');
+    function applySize() {
+      const v = sel.value;
+      const sheet = document.getElementById('sheet');
+      sheet.style.setProperty('--size', v);
+      // margen blanco ≈ 20 % del lado (mínimo 1 cm)
+      sheet.style.setProperty('--quiet', `max(1cm, calc(${v} * 0.2))`);
+      document.getElementById('caption').textContent = `Lado del cuadro negro: ${v.replace('cm', ' cm')}`;
+    }
+    sel.addEventListener('change', applySize);
+    applySize();
+  </script>
+</body>
+</html>
