@@ -192,6 +192,32 @@ check('Perfil parabólico reduce la nitidez del corte', () => {
   assert.ok(b < a, `parabólico ${b.toFixed(3)} no es menor que pistón ${a.toFixed(3)}`);
 });
 
+check('La eficiencia NO se declara válida mientras solo han llegado los gruesos', () => {
+  const sim = new S.Simulation({ rng: mulberry32(21) });
+  let first = null;
+  for (let i = 0; i < 150 * 60; i++) {
+    sim.step(1 / 60);
+    const st = sim.stats();
+    if (st.n >= 60 && sim.time < 20) {
+      assert.ok(!st.steady, `declarada estacionaria a los ${sim.time.toFixed(1)} s con salidas ${st.fractions.map(x => (x * 100).toFixed(0)).join('/')}`);
+    }
+    if (st.steady && !first) first = { t: sim.time, st };
+  }
+  assert.ok(first, 'nunca alcanzó el régimen estacionario');
+  // Al declararse estacionaria, todas las salidas tienen descargas y se parecen a lo teórico
+  first.st.fractions.forEach((f, k) => {
+    assert.ok(Math.abs(f - sim.model.theory[k]) <= 0.10, `salida ${k}: ${(f * 100).toFixed(0)} % vs teórico ${(sim.model.theory[k] * 100).toFixed(0)} %`);
+  });
+});
+check('Cambiar un parámetro reinicia la medición y el estado estacionario', () => {
+  const sim = new S.Simulation({ rng: mulberry32(22) });
+  for (let i = 0; i < 100 * 30; i++) sim.step(1 / 30);
+  assert.ok(sim.stats().steady);
+  sim.setParams({ Q_Lmin: 2.0 });
+  const st = sim.stats();
+  assert.ok(!st.steady && st.n === 0);
+});
+
 console.log('\nSólido escaneado (alimentación personalizada)');
 // Muestra "escaneada" con tamaños fuera del rango estándar y esfericidad < 1
 const scanRng = mulberry32(321);

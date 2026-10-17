@@ -137,7 +137,7 @@ Accesos rápidos: **Diseño Base (1.5 L/min)**, **Arrastre (3.0 L/min)** y los s
 
 * **Telemetría hidrodinámica:** $v_{f1}$, $v_{f2}$, $d_{pc1}$, $d_{pc2}$ y $Re_p$ de cada columna, con el régimen de flujo (Stokes o intermedio).
 * **Clasificación granulométrica:** para cada salida se muestra la fracción **teórica** (calculada con los diámetros de corte y la distribución de tamaños de la alimentación) y la fracción **medida** en las últimas 600 descargas reales de la simulación.
-* **Eficiencia de clasificación:** porcentaje de partículas que llegó a su salida correcta. La medición se reinicia al cambiar un parámetro y se estabiliza en aproximadamente un minuto.
+* **Eficiencia de clasificación:** porcentaje de partículas que llegó a su salida correcta. Solo se muestra cuando la operación alcanza el **régimen estacionario**: al inicio los gruesos llegan en pocos segundos al colector 1, mientras que los finos tardan mucho más en atravesar las dos columnas, así que un cálculo temprano daría un 100 % engañoso. El simulador considera el régimen estacionario cuando (1) hay al menos 300 descargas, (2) cada clase esperada (≥ 3 % de la alimentación) ya tiene al menos 15 descargas y (3) las fracciones por salida de la primera y la segunda mitad de la ventana difieren menos de 8 puntos. Mientras tanto, el panel indica *régimen transitorio*, qué clases faltan por llegar y muestra los porcentajes medidos atenuados. En el caso base esto ocurre a los 45–60 s; con caudales bajos o fluidos muy viscosos puede tardar más de 2 minutos. La medición se reinicia al cambiar cualquier parámetro.
 * **Ecuaciones del modelo:** se muestran renderizadas, resaltando las que están activas (perfil pistón o parabólico, corrección de Schiller–Naumann).
 * **Sustitución numérica en vivo:** cada ecuación se presenta con los valores actuales de la columna seleccionada (pestañas *Columna 1* / *Columna 2*), en unidades SI.
 
@@ -177,6 +177,7 @@ Las pruebas verifican:
 * Los valores del caso base: $v_{f1} = 8.99$ mm/s, $v_{f2} = 2.25$ mm/s, $d_{pc1} = 100.0\ \mu\mathrm{m}$, $d_{pc2} = 50.0\ \mu\mathrm{m}$ y $Re_{p1} \approx 0.90$; con galena, $d_{pc1} \approx 50.4\ \mu\mathrm{m}$.
 * Que la corrección de Schiller–Naumann reduzca la velocidad terminal y sea coherente con el diámetro de corte calculado.
 * Que **ninguna partícula salga** de columnas, conos, reductores, tuberías, tolva, colectores o tanque en distintos escenarios: caudales extremos, sólidos densos (galena) y ligeros (biomasa, polipropileno), perfil parabólico, dispersión, cambio de diámetros durante la operación y reinicio de pulso.
+* Que la eficiencia **no** se dé por válida mientras solo han llegado los gruesos, y que al declararse estacionaria las fracciones medidas se parezcan a las teóricas.
 * Que con flujo pistón la clasificación sea prácticamente perfecta y que el perfil parabólico reduzca la nitidez del corte.
 * Que con un **sólido escaneado** cada partícula se mueva con la velocidad terminal de su propio diámetro, y que lo medido coincida con lo teórico.
 * Que la **receta del escáner** sea coherente con el simulador (mismas $v_f$ y $d_{pc}$), respete los rangos de los controles y avise cuando no pueda lograr un corte.

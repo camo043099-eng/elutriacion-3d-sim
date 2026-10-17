@@ -1128,15 +1128,34 @@
       updateMeasured();
     }
 
+    const CLASS_NAMES = ['gruesas', 'medias', 'finas'];
+
     function updateMeasured() {
       const st = sim.stats();
-      const ready = st.n >= 60;
-      $('ms-coarse').textContent = ready ? pct(st.fractions[0]) : '—';
-      $('ms-medium').textContent = ready ? pct(st.fractions[1]) : '—';
-      $('ms-fine').textContent = ready ? pct(st.fractions[2]) : '—';
-      $('efficiency-row').innerHTML = ready
-        ? `Eficiencia de clasificación: <b>${pct(st.efficiency)}</b> de las partículas llegó a su salida correcta (últimas ${st.n} descargas).`
-        : `Midiendo descargas… (${st.n} de 60). La medición se reinicia al cambiar un parámetro y se estabiliza en ~1 minuto.`;
+      const show = st.n >= 60;
+      const ids = ['ms-coarse', 'ms-medium', 'ms-fine'];
+      ids.forEach((id, k) => {
+        const el = $(id);
+        el.textContent = show ? pct(st.fractions[k]) : '—';
+        // Mientras no se alcance el régimen estacionario, los valores se muestran atenuados
+        el.style.opacity = st.steady ? '1' : '0.45';
+      });
+
+      let html;
+      if (st.steady) {
+        html = `Eficiencia de clasificación: <b>${pct(st.efficiency)}</b> de las partículas llegó a su salida correcta (últimas ${st.n} descargas, régimen estacionario).`;
+      } else if (st.phase === 'esperando') {
+        html = `Midiendo descargas… (${st.n} de 60).`;
+      } else {
+        const faltan = st.missing.map(k => CLASS_NAMES[k]);
+        const motivo = faltan.length
+          ? `aún no llegan suficientes partículas ${faltan.join(' y ')} a su salida`
+          : 'las descargas todavía se están estabilizando';
+        html = `<span style="color: var(--warn)">Régimen transitorio (${Math.round(st.elapsed)} s): ${motivo}.</span> ` +
+               `Los gruesos llegan primero porque sedimentan rápido; los finos tardan más en atravesar las dos columnas. ` +
+               `La eficiencia se mostrará al alcanzar el régimen estacionario.`;
+      }
+      $('efficiency-row').innerHTML = html + ' <span style="opacity:.7">La medición se reinicia al cambiar un parámetro.</span>';
     }
 
     function syncActiveButtons() {

@@ -322,6 +322,13 @@
 
   const OUTLET_NAMES = ['Colector 1', 'Colector 2', 'Tanque de rebose'];
 
+  /** Criterio de régimen estacionario para la medición de eficiencia. */
+  const STEADY = {
+    MIN_EVENTS: 300,     // descargas mínimas en la ventana
+    MIN_PER_CLASS: 15,   // descargas mínimas de cada clase esperada
+    MAX_DRIFT: 0.08      // diferencia máx. de fracciones entre mitades de la ventana
+  };
+
   function Simulation(options) {
     options = options || {};
     this.rng = options.rng || Math.random;
@@ -333,6 +340,9 @@
       sphericity: 1.0
     };
     this.events = [];
+    this.time = 0;            // tiempo simulado (s)
+    this.measureStart = 0;    // inicio de la medición actual
+    this.steady = false;      // ¿se alcanzó el régimen estacionario?
     this.EVENT_WINDOW = options.eventWindow || 600;
     this.particles = [];
     this.tracers = [];
@@ -376,7 +386,7 @@
                         ('D2_cm' in partial && partial.D2_cm !== this.state.D2_cm);
     Object.assign(this.state, partial);
     this._refresh(geomChanged);
-    this.events.length = 0;
+    this._resetMeasurement();
     return geomChanged;
   };
 
@@ -400,7 +410,7 @@
       p.rad = particleRadius(p.d);
     }
     this._refresh(false);
-    this.events.length = 0;
+    this._resetMeasurement();
   };
 
   /** Desactiva la alimentación escaneada y restaura la distribución uniforme estándar. */
@@ -412,7 +422,7 @@
       this._redraw(p);
     }
     this._refresh(false);
-    this.events.length = 0;
+    this._resetMeasurement();
   };
 
   /** 0 = grueso (≥ d_pc1), 1 = medio (≥ d_pc2), 2 = fino (o sólido flotante si ρ_p ≤ ρ_f). */
@@ -491,7 +501,7 @@
       this._redraw(p);
       this._placeInColumn(p, 0, LAYOUT.FEED_Y - 0.6, LAYOUT.FEED_Y + 0.6);
     }
-    this.events.length = 0;
+    this._resetMeasurement();
   };
 
   Simulation.prototype._initTracers = function (n) {
@@ -561,27 +571,75 @@
   };
 
   Simulation.prototype._record = function (p) {
-    this.events.push({ outlet: p.dest, cls: this.classOf(p.d) });
+    this.events.push({ outlet: p.dest, cls: this.classOf(p.d), t: this.time });
     if (this.events.length > this.EVENT_WINDOW) this.events.shift();
   };
 
+  /** Reinicia la medición (al cambiar parámetros, alimentación o pulso). */
+  Simulation.prototype._resetMeasurement = function () {
+    this.events.length = 0;
+    this.measureStart = this.time || 0;
+    this.steady = false;
+  };
+
   /** Estadística de las últimas descargas: % por salida y % bien clasificado. */
+  /**
+   * Estadística de las últimas descargas.
+   *
+   * La eficiencia solo es representativa en RÉGIMEN ESTACIONARIO: al inicio
+   * llegan primero los gruesos (sedimentan en segundos) y los finos tardan
+   * mucho más en subir por las dos columnas. Por eso se informa el estado:
+   *  - 'esperando':    aún no hay suficientes descargas;
+   *  - 'transitorio':  faltan clases por llegar o las descargas siguen cambiando;
+   *  - 'estacionario': llegaron todas las clases esperadas y las fracciones de
+   *                    la primera y la segunda mitad de la ventana coinciden.
+   * Una vez estacionario se mantiene hasta que se reinicie la medición.
+   */
   Simulation.prototype.stats = function () {
-    const n = this.events.length;
+    const ev = this.events, n = ev.length;
     const byOutlet = [0, 0, 0];
+    const perClass = [0, 1, 2].map(() => ({ n: 0, correct: 0 }));
     let correct = 0;
-    for (const e of this.events) {
+    for (const e of ev) {
       byOutlet[e.outlet]++;
-      if (e.outlet === e.cls) correct++;
+      perClass[e.cls].n++;
+      if (e.outlet === e.cls) { correct++; perClass[e.cls].correct++; }
     }
+    const fractions = byOutlet.map(c => (n ? c / n : 0));
+
+    // Clases que deberían llegar según la alimentación (≥ 3 % teórico)
+    const theory = this.model.theory;
+    const expected = [0, 1, 2].filter(k => theory[k] >= 0.03);
+    const missing = expected.filter(k => perClass[k].n < STEADY.MIN_PER_CLASS);
+
+    let drift = Infinity;
+    if (n >= STEADY.MIN_EVENTS) {
+      const half = Math.floor(n / 2);
+      const a = [0, 0, 0], b = [0, 0, 0];
+      for (let i = 0; i < n; i++) (i < half ? a : b)[ev[i].outlet]++;
+      drift = Math.max(...[0, 1, 2].map(k => Math.abs(a[k] / half - b[k] / (n - half))));
+    }
+    if (!this.steady && n >= STEADY.MIN_EVENTS && missing.length === 0 && drift <= STEADY.MAX_DRIFT) {
+      this.steady = true;
+    }
+
+    const phase = this.steady ? 'estacionario' : (n < 60 ? 'esperando' : 'transitorio');
     return {
       n,
-      fractions: byOutlet.map(c => (n ? c / n : 0)),
-      efficiency: n ? correct / n : 0
+      fractions,
+      efficiency: n ? correct / n : 0,
+      recovery: perClass.map(c => (c.n ? c.correct / c.n : null)),
+      perClass,
+      phase,
+      steady: this.steady,
+      missing,                         // clases esperadas que aún no llegan
+      drift: Number.isFinite(drift) ? drift : null,
+      elapsed: this.time - this.measureStart
     };
   };
 
   Simulation.prototype.step = function (dt) {
+    this.time += dt;
     const L = LAYOUT, s = this.state, geo = this.geo;
 
     for (const p of this.particles) {
@@ -814,7 +872,7 @@
   }
 
   const api = {
-    LAYOUT, VEL_SCALE, PIPE_SPEED, D_MIN_UM, D_MAX_UM, RHO_MIN, RHO_MAX, OUTLET_NAMES, DEFAULT_STATE, LIMITS,
+    LAYOUT, VEL_SCALE, PIPE_SPEED, D_MIN_UM, D_MAX_UM, RHO_MIN, RHO_MAX, OUTLET_NAMES, DEFAULT_STATE, LIMITS, STEADY,
     particleRadius, makePath, pipePosition, buildGeometry,
     columnRadiusAt, hopperRadiusAt, columnMaxOffset, hopperMaxOffset, terminalVelocity, cutDiameter, computeModel,
     designRecipe, Simulation
