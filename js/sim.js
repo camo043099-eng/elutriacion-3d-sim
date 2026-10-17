@@ -2,6 +2,8 @@
  * Motor físico del elutriador hidráulico en serie (sin dependencias)
  * -----------------------------------------------------------------------------
  * Este archivo NO usa Three.js: contiene la física (Stokes / Schiller–Naumann),
+ * el régimen de flotación para sólidos ligeros (ρ_p ≤ ρ_f, desde 500 kg/m³),
+ * la integración con granulometría óptica escaneada por cámara (DIA 2D),
  * la geometría del equipo y el movimiento de las partículas. index.html solo
  * dibuja lo que aquí se calcula. Así la física se puede probar en Node
  * (ver tests/contencion.test.js) y se garantiza que ninguna partícula atraviesa
@@ -43,17 +45,23 @@
     WALL_GAP: 0.03             // holgura mínima partícula–pared
   };
 
-  const VEL_SCALE = 260;       // m/s reales → unidades 3D/s (escala visual)
-  const MAX_VISUAL_SPEED = 12; // límite visual para evitar saltos enormes
-  const PIPE_SPEED = 5.0;      // velocidad de arrastre dentro de tuberías
+  const VEL_SCALE = 260;        // m/s reales → unidades 3D/s (escala visual)
+  const MAX_VISUAL_SPEED = 12;  // límite visual para evitar saltos enormes
+  const PIPE_SPEED = 5.0;       // velocidad de arrastre dentro de tuberías
   const D_MIN_UM = 15, D_MAX_UM = 145;
+  const RHO_MIN = 500, RHO_MAX = 7500;
 
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
   const lerp = (a, b, t) => a + (b - a) * t;
 
-  /** Radio visual de la esfera que representa una partícula de d µm. */
+  /**
+   * Radio visual de la esfera que representa una partícula de d µm.
+   * Se acota al rango visual seguro para garantizar que incluso partículas
+   * extremas provenientes de la cámara entren siempre por las tuberías.
+   */
   function particleRadius(d_um) {
-    return 0.045 + (d_um / 150) * 0.115;
+    const dSafe = clamp(d_um, D_MIN_UM, D_MAX_UM);
+    return 0.045 + (dSafe / 150) * 0.115;
   }
 
   // ---------------------------------------------------------------------------
@@ -190,9 +198,6 @@
    * Máxima distancia al eje a la que puede estar el CENTRO de una esfera de
    * radio rad (a la altura y) sin que ninguna parte de ella toque la pared de
    * un recipiente de revolución cuyo radio interno es radiusFn(y').
-   * Cada corte horizontal de la esfera (disco de radio ρ) debe caber en el
-   * corte del recipiente: r + ρ(y') ≤ R(y'). Esto es correcto también en las
-   * paredes inclinadas de conos, reductor y tolva.
    */
   function maxRadialOffset(radiusFn, y, rad, gap) {
     const rr = rad + gap;
@@ -215,39 +220,58 @@
   }
 
   // ---------------------------------------------------------------------------
-  // 4. MODELO HIDRODINÁMICO
+  // 4. MODELO HIDRODINÁMICO (Soporta ρ_p desde 500 kg/m³ hasta 7500 kg/m³)
   // ---------------------------------------------------------------------------
-  /** Velocidad terminal (m/s). Stokes, o Schiller–Naumann si reCorrection. */
+  /**
+   * Velocidad terminal vertical de la partícula respecto al fluido (m/s).
+   * - Positiva (v_t > 0): la partícula es más densa que el fluido y sedimenta hacia abajo.
+   * - Cero o negativa (v_t ≤ 0): la partícula es menos densa que el fluido (ej. 500–1000 kg/m³)
+   *   y experimenta empuje de flotación ascendente.
+   */
   function terminalVelocity(d_m, s) {
     const mu = s.mu_mPas * 1e-3;
-    const dRho = Math.max(10, s.rho_p - s.rho_f);
-    const vStokes = (s.g * d_m * d_m * dRho) / (18 * mu);
-    if (!s.reCorrection) return vStokes;
-    // C_D = 24/Re·(1 + 0.15·Re^0.687)  ⇒  v_t = v_Stokes / (1 + 0.15·Re^0.687)
+    const rawDRho = s.rho_p - s.rho_f;
+    if (Math.abs(rawDRho) < 1e-6) return 0;
+
+    const sign = rawDRho > 0 ? 1 : -1;
+    const absDRho = Math.max(10, Math.abs(rawDRho));
+    const psiFactor = (s.sphericity !== undefined && s.sphericity > 0) ? s.sphericity : 1.0;
+
+    const vStokes = ((s.g * d_m * d_m * absDRho) / (18 * mu)) * psiFactor;
+    if (!s.reCorrection) return sign * vStokes;
+
+    // Correlación de Schiller–Naumann: C_D = (24/Re)·(1 + 0.15·Re^0.687)
     let v = vStokes;
     for (let i = 0; i < 80; i++) {
       const Re = (s.rho_f * v * d_m) / mu;
-      const vNew = vStokes / (1 + 0.15 * Math.pow(Re, 0.687));
+      const vNew = vStokes / (1 + 0.15 * Math.pow(Math.max(1e-12, Re), 0.687));
       if (Math.abs(vNew - v) < 1e-12) { v = vNew; break; }
       v = 0.5 * (v + vNew);
     }
-    return v;
+    return sign * v;
   }
 
-  /** Diámetro de corte (m): partícula cuya v_t iguala a v_f. */
+  /**
+   * Diámetro de corte (m): tamaño cuya magnitud de velocidad terminal iguala a v_f.
+   * Si ρ_p ≤ ρ_f, utiliza |Δρ| para ofrecer el diámetro equivalente de referencia en la UI.
+   */
   function cutDiameter(vf, s) {
     const mu = s.mu_mPas * 1e-3;
-    const dRho = Math.max(10, s.rho_p - s.rho_f);
-    if (!s.reCorrection) return Math.sqrt((18 * mu * vf) / (s.g * dRho));
-    let lo = 1e-7, hi = 5e-3;                  // v_t crece con d → bisección
+    const absDRho = Math.max(10, Math.abs(s.rho_p - s.rho_f));
+    const psiFactor = (s.sphericity !== undefined && s.sphericity > 0) ? s.sphericity : 1.0;
+
+    if (!s.reCorrection) {
+      return Math.sqrt((18 * mu * vf) / (s.g * absDRho * psiFactor));
+    }
+    let lo = 1e-7, hi = 5e-3;
     for (let i = 0; i < 80; i++) {
       const mid = 0.5 * (lo + hi);
-      if (terminalVelocity(mid, s) < vf) lo = mid; else hi = mid;
+      if (Math.abs(terminalVelocity(mid, s)) < vf) lo = mid; else hi = mid;
     }
     return 0.5 * (lo + hi);
   }
 
-  function computeModel(s) {
+  function computeModel(s, customFeed) {
     const Q = s.Q_Lmin / 1000 / 60;            // m³/s
     const mu = s.mu_mPas * 1e-3;
     const D = [s.D1_cm / 100, s.D2_cm / 100];
@@ -257,7 +281,27 @@
     const re = vf.map((v, i) => (s.rho_f * v * dpc_m[i]) / mu);
     const dpc_um = dpc_m.map(d => d * 1e6);
 
-    // Fracciones teóricas (distribución uniforme de tamaños 15–145 µm)
+    // Si el sólido flota (ρ_p ≤ ρ_f), el 100% asciende al tanque de rebose
+    if (s.rho_p <= s.rho_f) {
+      return { Q, mu, D, A, vf, dpc_um, re, theory: [0, 0, 1] };
+    }
+
+    // Si hay una distribución empírica escaneada por cámara, calcular fracciones reales
+    if (customFeed && customFeed.active && customFeed.diameters_um && customFeed.diameters_um.length > 0) {
+      const arr = customFeed.diameters_um;
+      const sqrtPsi = Math.sqrt(customFeed.sphericity || 1.0);
+      let c0 = 0, c1 = 0, c2 = 0;
+      for (let i = 0; i < arr.length; i++) {
+        const dEff = arr[i] * sqrtPsi;
+        if (dEff >= dpc_um[0]) c0++;
+        else if (dEff >= dpc_um[1]) c1++;
+        else c2++;
+      }
+      const tot = arr.length;
+      return { Q, mu, D, A, vf, dpc_um, re, theory: [c0 / tot, c1 / tot, c2 / tot] };
+    }
+
+    // Fracciones teóricas estándar (distribución uniforme de tamaños 15–145 µm)
     const above = d => clamp((D_MAX_UM - d) / (D_MAX_UM - D_MIN_UM), 0, 1);
     const fCoarse = above(dpc_um[0]);
     const fMedium = Math.max(0, above(dpc_um[1]) - fCoarse);
@@ -272,7 +316,8 @@
   const DEFAULT_STATE = {
     Q_Lmin: 1.50, rho_p: 2650, rho_f: 1000, mu_mPas: 1.00,
     D1_cm: 5.95, D2_cm: 11.90, g: 9.81,
-    parabolic: false, reCorrection: false, dispersion: false
+    parabolic: false, reCorrection: false, dispersion: false,
+    sphericity: 1.0
   };
 
   const OUTLET_NAMES = ['Colector 1', 'Colector 2', 'Tanque de rebose'];
@@ -282,6 +327,11 @@
     this.rng = options.rng || Math.random;
     this.N = options.count || 480;
     this.state = Object.assign({}, DEFAULT_STATE, options.state || {});
+    this.customFeed = {
+      active: false,
+      diameters_um: [],
+      sphericity: 1.0
+    };
     this.events = [];
     this.EVENT_WINDOW = options.eventWindow || 600;
     this.particles = [];
@@ -296,10 +346,23 @@
     return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
   };
 
+  /** Obtiene un diámetro de alimentación (de la muestra escaneada o uniforme). */
+  Simulation.prototype._sampleDiameterUm = function () {
+    if (this.customFeed && this.customFeed.active && this.customFeed.diameters_um.length > 0) {
+      const arr = this.customFeed.diameters_um;
+      const idx = Math.floor(this.rng() * arr.length) % arr.length;
+      const sqrtPsi = Math.sqrt(this.customFeed.sphericity || 1.0);
+      return arr[idx] * sqrtPsi;
+    }
+    return D_MIN_UM + this.rng() * (D_MAX_UM - D_MIN_UM);
+  };
+
   Simulation.prototype._refresh = function (geometryChanged) {
-    this.model = computeModel(this.state);
+    this.model = computeModel(this.state, this.customFeed);
     if (geometryChanged || !this.geo) this.geo = buildGeometry(this.state);
     for (const p of this.particles) {
+      if (p._scannedDpUm !== undefined) p.d = p._scannedDpUm;
+      p.rad = particleRadius(p.d);
       p.vt = terminalVelocity(p.d * 1e-6, this.state);
       p.cls = this.classOf(p.d);
     }
@@ -307,6 +370,9 @@
 
   /** Cambia parámetros de operación; devuelve true si cambió la geometría. */
   Simulation.prototype.setParams = function (partial) {
+    if ('rho_p' in partial) {
+      partial.rho_p = clamp(partial.rho_p, RHO_MIN, RHO_MAX);
+    }
     const geomChanged = ('D1_cm' in partial && partial.D1_cm !== this.state.D1_cm) ||
                         ('D2_cm' in partial && partial.D2_cm !== this.state.D2_cm);
     Object.assign(this.state, partial);
@@ -315,15 +381,53 @@
     return geomChanged;
   };
 
-  /** 0 = grueso (≥ d_pc1), 1 = medio (≥ d_pc2), 2 = fino. */
+  /**
+   * Conecta directamente los datos escaneados con la cámara del móvil al motor físico.
+   * @param {number[]} diameters_um Lista de diámetros equivalentes medidos (µm)
+   * @param {number} [sphericity=1.0] Esfericidad media de Wadell (0.45 a 1.0)
+   */
+  Simulation.prototype.setCustomFeed = function (diameters_um, sphericity) {
+    if (!Array.isArray(diameters_um) || diameters_um.length === 0) return;
+    const psi = clamp(sphericity || 1.0, 0.4, 1.0);
+    this.customFeed.active = true;
+    this.customFeed.diameters_um = diameters_um.slice();
+    this.customFeed.sphericity = psi;
+
+    const sqrtPsi = Math.sqrt(psi);
+    for (let i = 0; i < this.particles.length; i++) {
+      const p = this.particles[i];
+      const dEff = diameters_um[i % diameters_um.length] * sqrtPsi;
+      p.d = dEff;
+      p._scannedDpUm = dEff;
+      p.rad = particleRadius(p.d);
+    }
+    this._refresh(false);
+    this.events.length = 0;
+  };
+
+  /** Desactiva la alimentación escaneada y restaura la distribución uniforme estándar. */
+  Simulation.prototype.clearCustomFeed = function () {
+    this.customFeed.active = false;
+    this.customFeed.diameters_um = [];
+    this.customFeed.sphericity = 1.0;
+    for (const p of this.particles) {
+      delete p._scannedDpUm;
+      this._redraw(p);
+    }
+    this._refresh(false);
+    this.events.length = 0;
+  };
+
+  /** 0 = grueso (≥ d_pc1), 1 = medio (≥ d_pc2), 2 = fino (o sólido flotante si ρ_p ≤ ρ_f). */
   Simulation.prototype.classOf = function (d_um) {
+    if (this.state.rho_p <= this.state.rho_f) return 2;
     if (d_um >= this.model.dpc_um[0]) return 0;
     if (d_um >= this.model.dpc_um[1]) return 1;
     return 2;
   };
 
   Simulation.prototype._newParticle = function () {
-    const d = D_MIN_UM + this.rng() * (D_MAX_UM - D_MIN_UM);
+    const d = this._sampleDiameterUm();
     const p = {
       d, rad: particleRadius(d),
       vt: terminalVelocity(d * 1e-6, this.state),
@@ -339,7 +443,12 @@
   };
 
   Simulation.prototype._redraw = function (p) {
-    p.d = D_MIN_UM + this.rng() * (D_MAX_UM - D_MIN_UM);
+    if (p._scannedDpUm !== undefined && (!this.customFeed || !this.customFeed.active)) {
+      p.d = p._scannedDpUm;
+    } else {
+      p.d = this._sampleDiameterUm();
+      if (this.customFeed && this.customFeed.active) p._scannedDpUm = p.d;
+    }
     p.rad = particleRadius(p.d);
     p.vt = terminalVelocity(p.d * 1e-6, this.state);
     p.cls = this.classOf(p.d);
@@ -386,7 +495,10 @@
 
   /** Pulso: todas las partículas se inyectan juntas en la zona de alimentación. */
   Simulation.prototype.resetPulse = function () {
-    for (const p of this.particles) this._placeInColumn(p, 0, LAYOUT.FEED_Y - 0.6, LAYOUT.FEED_Y + 0.6);
+    for (const p of this.particles) {
+      this._redraw(p);
+      this._placeInColumn(p, 0, LAYOUT.FEED_Y - 0.6, LAYOUT.FEED_Y + 0.6);
+    }
     this.events.length = 0;
   };
 
@@ -406,7 +518,7 @@
   /** Velocidad ascendente local del agua (m/s) en la columna c, altura y, radio r. */
   Simulation.prototype.fluidVelocity = function (c, y, r) {
     const L = LAYOUT;
-    if (y <= L.DEAD_ZONE_Y) return 0;           // bajo la entrada: agua en reposo
+    if (y <= L.DEAD_ZONE_Y) return 0;            // bajo la entrada: agua en reposo
     const rl = columnRadiusAt(this.geo, c, y);
     const R = this.geo.R[c];
     let v = this.model.vf[c];
@@ -443,12 +555,12 @@
     p.wy = Math.min(p.y, exitY - p.rad - 0.05);
     p.phase = 1;
     const a = this.rng() * Math.PI * 2;
-    if (dest === 2) {                           // tanque de finos
+    if (dest === 2) {                            // tanque de finos
       const r = Math.sqrt(this.rng()) * (L.TANK_R - p.rad - 0.1);
       p.tx = L.TANK_X + Math.cos(a) * r;
       p.tz = Math.sin(a) * r;
       p.ty = L.TANK_FLOOR + p.rad + this.rng() * 0.35;
-    } else {                                    // colector bajo el cono
+    } else {                                     // colector bajo el cono
       const r = Math.sqrt(this.rng()) * (L.POT_R - p.rad - 0.05);
       p.tx = L.COL_X[dest] + Math.cos(a) * r;
       p.tz = Math.sin(a) * r;
@@ -481,6 +593,14 @@
     const L = LAYOUT, s = this.state, geo = this.geo;
 
     for (const p of this.particles) {
+      // Sincronizar si el conector de cámara en index.html asignó un diámetro escaneado
+      if (p._scannedDpUm !== undefined && Math.abs(p.d - p._scannedDpUm) > 1e-4) {
+        p.d = p._scannedDpUm;
+        p.rad = particleRadius(p.d);
+        p.vt = terminalVelocity(p.d * 1e-6, s);
+        p.cls = this.classOf(p.d);
+      }
+
       switch (p.stage) {
         // --------------------------------------------- Tolva de alimentación
         case 'hopper': {
@@ -499,6 +619,12 @@
             p.y += dy / dist * stepLen;
             p.hz += dz / dist * stepLen;
           }
+          const hMax = hopperMaxOffset(p.y, p.rad);
+          const hr = Math.hypot(p.hx, p.hz);
+          if (hr > hMax && hr > 0) {
+            p.hx *= hMax / hr;
+            p.hz *= hMax / hr;
+          }
           p.x = geo.feedX + p.hx;
           p.z = p.hz;
           break;
@@ -507,6 +633,10 @@
         // --------------------------------------------- Dentro de una tubería
         case 'pipe': {
           const path = geo.paths[p.path];
+          const lim = Math.max(0, L.PIPE_R - p.rad - 0.02);
+          const m = Math.hypot(p.oa, p.ob);
+          if (m > lim && m > 0) { p.oa *= lim / m; p.ob *= lim / m; }
+
           p.s += PIPE_SPEED * dt;
           if (p.s >= path.length) {
             const end = pipePosition(path, path.length, p.oa, p.ob);
@@ -520,7 +650,7 @@
               p.col = c;
               p.y = end[1];
               const dx = end[0] - geo.cx[c], dz = end[2];
-              p.r = Math.hypot(dx, dz);
+              p.r = Math.min(Math.hypot(dx, dz), columnMaxOffset(geo, c, p.y, p.rad));
               p.ang = Math.atan2(dz, dx);
               p.rTFrac = Math.sqrt(this.rng()) * 0.85;
               this._syncColumnXZ(p);
@@ -536,6 +666,7 @@
         case 'col': {
           const c = p.col;
           const vf = this.fluidVelocity(c, p.y, p.r);
+          // Si p.vt < 0 (flotación natural cuando ρ_p < ρ_f), (vf - p.vt) es positivo incluso en zona muerta
           let vy = clamp((vf - p.vt) * VEL_SCALE, -MAX_VISUAL_SPEED, MAX_VISUAL_SPEED);
           p.y += vy * dt;
           if (s.dispersion && p.y > L.DEAD_ZONE_Y) p.y += 0.35 * this._gauss() * Math.sqrt(dt);
@@ -575,7 +706,7 @@
           const gz = p.phase === 1 ? p.wz : p.tz;
           const dx = gx - p.x, dy = gy - p.y, dz = gz - p.z;
           const dist = Math.hypot(dx, dy, dz);
-          const speed = clamp(p.vt * VEL_SCALE, 1.2, 8);
+          const speed = clamp(Math.abs(p.vt) * VEL_SCALE, 1.4, 8);
           const stepLen = speed * dt;
           if (dist <= stepLen) {
             p.x = gx; p.y = gy; p.z = gz;
@@ -598,8 +729,7 @@
         case 'rest': {
           p.hold -= dt;
           if (p.hold <= 0) {
-            // Alimentación fresca: nuevo tamaño aleatorio (distribución uniforme),
-            // así la composición de la alimentación no depende del reciclo.
+            // Alimentación fresca: muestrea de la distribución escaneada o uniforme
             this._redraw(p);
             this._toHopper(p, 2.5);
           }
@@ -620,7 +750,7 @@
   };
 
   const api = {
-    LAYOUT, VEL_SCALE, PIPE_SPEED, D_MIN_UM, D_MAX_UM, OUTLET_NAMES, DEFAULT_STATE,
+    LAYOUT, VEL_SCALE, PIPE_SPEED, D_MIN_UM, D_MAX_UM, RHO_MIN, RHO_MAX, OUTLET_NAMES, DEFAULT_STATE,
     particleRadius, makePath, pipePosition, buildGeometry,
     columnRadiusAt, hopperRadiusAt, columnMaxOffset, hopperMaxOffset, terminalVelocity, cutDiameter, computeModel,
     Simulation
