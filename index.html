@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Simulador 3D de Elutriación Multietapa | Ingeniería de Procesos</title>
   <!-- KaTeX local: las ecuaciones se ven bien incluso sin conexión -->
-  <link rel="stylesheet" href="vendor/katex/katex.min.css" />
+  <link rel="stylesheet" href="vendor/katex/katex.min.css" onerror="this.href='https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css'" />
   <style>
     :root {
       --bg-dark: #0b1120;
@@ -84,6 +84,13 @@
       font-weight: 600;
     }
 
+    .badge.scan-live {
+      background: rgba(74, 222, 128, 0.16);
+      color: var(--ok);
+      border-color: var(--ok);
+      display: none;
+    }
+
     .brand p {
       font-size: 0.78rem;
       color: var(--text-muted);
@@ -106,12 +113,23 @@
       font-size: 0.8rem;
       font-weight: 600;
       cursor: pointer;
-      transition: background 0.15s ease, border-color 0.15s ease;
+      transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
     }
 
     .btn:hover, .btn.active {
       background: rgba(56, 189, 248, 0.2);
       border-color: var(--accent);
+    }
+
+    .btn.scan-btn {
+      background: linear-gradient(135deg, rgba(16, 185, 129, 0.28), rgba(56, 189, 248, 0.25));
+      border-color: var(--ok);
+      color: #ecfdf5;
+    }
+
+    .btn.scan-btn:hover {
+      background: linear-gradient(135deg, rgba(16, 185, 129, 0.42), rgba(56, 189, 248, 0.38));
+      transform: translateY(-1px);
     }
 
     .btn.ghost { border-style: dashed; }
@@ -216,6 +234,24 @@
     }
 
     .toggle-row input { width: 16px; height: 16px; accent-color: var(--accent); flex-shrink: 0; }
+
+    /* Tarjeta de estado cuando hay un sólido escaneado activo */
+    .scanned-status-card {
+      display: none;
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(74, 222, 128, 0.45);
+      border-radius: 8px;
+      padding: 10px;
+      margin-bottom: 14px;
+      font-size: 0.75rem;
+      line-height: 1.45;
+    }
+
+    .scanned-status-card strong {
+      color: var(--ok);
+      display: block;
+      margin-bottom: 3px;
+    }
 
     /* ---------- Telemetría ---------- */
     .kpi-grid {
@@ -347,11 +383,151 @@
 
     #webgl-error strong { color: var(--warn); }
 
+    /* ---------- Modal de Escáner por Cámara Móvil ---------- */
+    .scanner-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      background: rgba(7, 11, 20, 0.84);
+      backdrop-filter: blur(10px);
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .scanner-modal.open {
+      display: flex;
+    }
+
+    .scanner-dialog {
+      background: rgba(15, 23, 42, 0.96);
+      border: 1px solid var(--border-glow);
+      border-radius: 14px;
+      width: 100%;
+      max-width: 1080px;
+      max-height: 92vh;
+      overflow-y: auto;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.8);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .scanner-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 14px 20px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+    }
+
+    .scanner-header h2 {
+      font-size: 1.02rem;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .scanner-grid {
+      display: grid;
+      grid-template-columns: 1.05fr 1fr;
+      gap: 18px;
+      padding: 18px 20px;
+    }
+
+    .cam-viewport {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      background: #050811;
+      border: 1px solid rgba(56, 189, 248, 0.38);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    #scan-video { display: none; }
+
+    #scan-canvas {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .cam-pill {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(15, 23, 42, 0.88);
+      border: 1px solid rgba(56, 189, 248, 0.45);
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      color: #e2e8f0;
+    }
+
+    .cam-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
+    .cam-actions .btn {
+      flex: 1;
+      text-align: center;
+      font-size: 0.75rem;
+      padding: 8px 10px;
+    }
+
+    .hist-card {
+      background: rgba(9, 14, 26, 0.9);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 8px;
+      padding: 10px;
+      margin-bottom: 12px;
+    }
+
+    #hist-canvas {
+      width: 100%;
+      height: 110px;
+      display: block;
+    }
+
+    .select-solid {
+      width: 100%;
+      background: rgba(15, 23, 42, 0.95);
+      color: var(--text-main);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      border-radius: 6px;
+      padding: 7px 10px;
+      font-size: 0.8rem;
+      margin-top: 4px;
+    }
+
+    .recipe-box {
+      background: rgba(16, 185, 129, 0.09);
+      border-left: 3px solid var(--ok);
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-size: 0.76rem;
+      line-height: 1.5;
+      color: #e2e8f0;
+      margin-top: 10px;
+    }
+
+    .recipe-box strong { color: var(--ok); }
+
     @media (max-width: 1100px) {
       .left-panel { width: 290px; }
       .right-panel { width: 330px; }
       .eq { font-size: 0.8rem; }
       .brand p { display: none; }
+    }
+
+    @media (max-width: 880px) {
+      .scanner-grid { grid-template-columns: 1fr; }
     }
 
     @media (max-width: 760px) {
@@ -389,10 +565,12 @@
       <h1>
         Simulador 3D de Elutriación Hidráulica en Serie
         <span class="badge">Tema 3 • Ley de Stokes</span>
+        <span class="badge scan-live" id="badge-scan-live">Sólido Escaneado Activo</span>
       </h1>
       <p>Clasificación hidrogranulométrica continua en contracorriente • WebGL en tiempo real</p>
     </div>
     <div class="camera-controls">
+      <button class="btn scan-btn" id="btn-open-scanner">📷 Escanear Sólido</button>
       <button class="btn cam-btn active" data-view="overview">Vista General 3D</button>
       <button class="btn cam-btn" data-view="col1">Enfocar Columna 1</button>
       <button class="btn cam-btn" data-view="col2">Enfocar Columna 2</button>
@@ -404,6 +582,14 @@
 
   <!-- Panel Izquierdo: Parámetros de Diseño y Operación -->
   <aside class="side-panel left-panel">
+    <div class="scanned-status-card" id="scanned-status-card">
+      <strong>📷 Sólido Escaneado en Alimentación</strong>
+      <div id="scanned-status-desc">Muestra conectada al simulador.</div>
+      <div class="preset-row" style="margin-top: 6px;">
+        <button class="preset-btn" id="btn-restore-uniform">Restaurar alimentación estándar</button>
+      </div>
+    </div>
+
     <div class="section-title">Variables de Operación</div>
 
     <div class="control-group">
@@ -582,12 +768,273 @@
     <div class="eq-note" id="eq-live-note"></div>
   </aside>
 
-  <!-- KaTeX (local) -->
-  <script src="vendor/katex/katex.min.js"></script>
-  <script src="vendor/katex/contrib/auto-render.min.js"></script>
+  <!-- =========================================================================
+       MODAL: ESCÁNER ÓPTICO DE SÓLIDOS CON CÁMARA MÓVIL (VISIÓN 2D -> 3D)
+       ========================================================================= -->
+  <div class="scanner-modal" id="scanner-modal">
+    <div class="scanner-dialog">
+      <div class="scanner-header">
+        <h2>
+          📷 Escáner Granulométrico por Cámara Móvil
+          <span class="badge">Análisis Digital de Imagen (DIA)</span>
+        </h2>
+        <button class="btn" id="btn-close-scanner">✕ Cerrar</button>
+      </div>
+
+      <div class="scanner-grid">
+        <!-- Columna Izquierda: Video en vivo, binarización y escala -->
+        <div>
+          <div class="cam-viewport">
+            <video id="scan-video" playsinline muted></video>
+            <canvas id="scan-canvas" width="480" height="360"></canvas>
+            <div class="cam-pill" id="scan-status">Muestra sintética calibrada activa</div>
+          </div>
+
+          <div class="cam-actions">
+            <button class="btn scan-btn" id="btn-cam-start">📱 Cámara en Vivo</button>
+            <button class="btn" id="btn-cam-freeze">❄️ Congelar Imagen</button>
+            <label class="btn" style="cursor: pointer;">
+              🖼️ Tomar/Subir Foto
+              <input type="file" id="input-cam-file" accept="image/*" capture="environment" style="display: none;" />
+            </label>
+            <button class="btn" id="btn-cam-synth">🔬 Muestra Sintética</button>
+          </div>
+
+          <div class="section-title spaced">Calibración Métrica y Umbral</div>
+
+          <div class="control-group">
+            <div class="control-header">
+              <span>Ancho físico del recuadro azul (Referencia)</span>
+              <span class="control-val" id="val-scan-fov">1.80 mm</span>
+            </div>
+            <input type="range" id="slider-scan-fov" min="0.80" max="15.00" step="0.10" value="1.80" />
+            <div class="preset-row">
+              <button class="preset-btn fov-preset active" data-fov="1.8">Lente Macro (1.8 mm)</button>
+              <button class="preset-btn fov-preset" data-fov="4.5">Lente Clip (4.5 mm)</button>
+              <button class="preset-btn fov-preset" data-fov="12.0">Vista Directa (12 mm)</button>
+            </div>
+          </div>
+
+          <div class="control-group">
+            <div class="control-header">
+              <span>Umbral de contraste (Binarización)</span>
+              <span class="control-val" id="val-scan-thresh">135</span>
+            </div>
+            <input type="range" id="slider-scan-thresh" min="30" max="230" step="1" value="135" />
+          </div>
+
+          <label class="toggle-row">
+            <span>Sólidos oscuros sobre fondo blanco<small>Desactiva si escaneas granos claros sobre fondo negro</small></span>
+            <input type="checkbox" id="chk-scan-dark" checked />
+          </label>
+        </div>
+
+        <!-- Columna Derecha: Telemetría del sólido y receta de elutriación -->
+        <div>
+          <div class="section-title">Parámetros Medidos del Sólido</div>
+
+          <div class="kpi-grid">
+            <div class="kpi-card">
+              <div class="label">Partículas Detectadas ($N$)</div>
+              <div class="value" id="scan-kpi-n" style="color: var(--accent);">0</div>
+              <div class="sub" id="scan-kpi-scale">Resolución: 3.75 µm/px</div>
+            </div>
+            <div class="kpi-card">
+              <div class="label">Diámetro Mediano ($d_{50}$)</div>
+              <div class="value" id="scan-kpi-d50" style="color: var(--ok);">— µm</div>
+              <div class="sub" id="scan-kpi-d1090">d10: — | d90: —</div>
+            </div>
+            <div class="kpi-card">
+              <div class="label">Esfericidad de Wadell ($\psi$)</div>
+              <div class="value" id="scan-kpi-psi" style="color: #f472b6;">—</div>
+              <div class="sub">Circularidad $4\pi A / P^2$</div>
+            </div>
+            <div class="kpi-card">
+              <div class="label">Cortes Sugeridos ($d_{pc1} / d_{pc2}$)</div>
+              <div class="value" id="scan-kpi-cuts" style="color: var(--warn);">— / — µm</div>
+              <div class="sub">Percentiles $P_{67}$ y $P_{33}$</div>
+            </div>
+          </div>
+
+          <div class="hist-card">
+            <div class="eq-caption" style="margin-bottom: 4px;">Distribución de Tamaños Escaneada ($d_p$ en µm)</div>
+            <canvas id="hist-canvas" width="420" height="110"></canvas>
+          </div>
+
+          <div class="control-group">
+            <div class="control-header">
+              <span>Naturaleza / Densidad del Sólido Escaneado ($\rho_p$)</span>
+            </div>
+            <select class="select-solid" id="select-scan-rho">
+              <option value="2650">Cuarzo / Arena silícea (2650 kg/m³)</option>
+              <option value="1500">Carbón mineral / Polímero denso (1500 kg/m³)</option>
+              <option value="2710">Caliza / Carbonato de calcio (2710 kg/m³)</option>
+              <option value="4500">Barita - Sulfato de bario (4500 kg/m³)</option>
+              <option value="5150">Magnetita - Óxido de hierro (5150 kg/m³)</option>
+              <option value="7500">Galena - Sulfuro de plomo (7500 kg/m³)</option>
+            </select>
+          </div>
+
+          <div class="recipe-box" id="scan-recipe-box">
+            <strong>Cómo realizar la elutriación de este sólido:</strong><br />
+            Escanea las partículas para obtener el caudal $Q$, velocidades ascendentes y diámetros de columna requeridos.
+          </div>
+
+          <div style="display: flex; gap: 10px; margin-top: 14px;">
+            <button class="btn scan-btn" id="btn-connect-sim" style="flex: 1; padding: 11px;">
+              🚀 Conectar Datos al Simulador 3D y Ejecutar Elutriación
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- KaTeX (local con respaldo CDN automático) -->
+  <script src="vendor/katex/katex.min.js" onerror="document.write('<script src=&quot;https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js&quot;><\/script>')"></script>
+  <script src="vendor/katex/contrib/auto-render.min.js" onerror="document.write('<script src=&quot;https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js&quot;><\/script>')"></script>
 
   <!-- Motor físico (sin dependencias) -->
   <script src="js/sim.js"></script>
+  <script>
+    // Respaldo integrado por si se ejecuta el HTML sin el archivo externo js/sim.js
+    if (typeof window.ElutriationSim === 'undefined') {
+      window.ElutriationSim = (function () {
+        const LAYOUT = {
+          COL_X: [-5.0, 3.2], TANK_X: 10.2,
+          COL_TOP: 5.5, COL_BOTTOM: -3.0, CONE_BOTTOM: -5.0,
+          REDUCER_TOP: 6.2, POT_TOP: -5.0, POT_BOTTOM: -6.4, POT_FLOOR: -6.6,
+          CONE_OUTLET_R: [0.35, 0.40], PIPE_R: 0.22, POT_R: 0.72,
+          HOPPER_R: 0.85, HOPPER_TOP: 5.2, HOPPER_BOTTOM: 3.9,
+          INLET_Y: -2.6, TANK_R: 1.65, TANK_TOP: 2.2, TANK_BOTTOM: -2.6, TANK_FLOOR: -2.6
+        };
+        class SimplePath {
+          constructor(pts) {
+            this.pts = pts; this.seg = []; this.length = 0;
+            for (let i = 0; i < pts.length - 1; i++) {
+              const l = Math.hypot(pts[i+1][0]-pts[i][0], pts[i+1][1]-pts[i][1], pts[i+1][2]-pts[i][2]);
+              this.seg.push(l); this.length += l;
+            }
+          }
+          pointAt(dist) {
+            let d = Math.max(0, Math.min(this.length, dist));
+            for (let i = 0; i < this.seg.length; i++) {
+              if (d <= this.seg[i] || i === this.seg.length - 1) {
+                const t = this.seg[i] > 0 ? d / this.seg[i] : 0;
+                const a = this.pts[i], b = this.pts[i+1];
+                return [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t];
+              }
+              d -= this.seg[i];
+            }
+            return this.pts[this.pts.length - 1];
+          }
+        }
+        class Simulation {
+          constructor(opts) {
+            this.count = (opts && opts.count) || 480;
+            this.state = { Q_Lmin: 1.5, rho_p: 2650, rho_f: 1000, mu_mPas: 1.0, D1_cm: 5.95, D2_cm: 11.9, g: 9.81, parabolic: false, dispersion: false, reCorrection: false };
+            this.model = { Q: 0, mu: 0.001, D: [0.0595, 0.119], vf: [0, 0], dpc_um: [100, 50], re: [0, 0], theory: [0.33, 0.33, 0.34] };
+            this.geo = { R: [1.19, 2.38], cx: [-5.0, 3.2], feedX: -7.8, paths: {} };
+            this.particles = []; this.tracers = []; this.history = [];
+            this.updateGeometry(); this.updateModel();
+            for (let i = 0; i < this.count; i++) { const p = {}; this.spawn(p, true); this.particles.push(p); }
+            for (let i = 0; i < 90; i++) { this.tracers.push({ col: i < 45 ? 0 : 1, angle: Math.random()*Math.PI*2, rFrac: Math.sqrt(Math.random())*0.85, y: -2.8+Math.random()*8.2, x:0, z:0 }); }
+          }
+          vt(dp_m) {
+            const s = this.state, mu = s.mu_mPas * 1e-3, dRho = Math.max(10, s.rho_p - s.rho_f);
+            const vt0 = (s.g * dp_m * dp_m * dRho) / (18 * mu);
+            if (!s.reCorrection) return vt0;
+            let v = vt0;
+            for (let k = 0; k < 6; k++) { const re = (s.rho_f * v * dp_m) / mu; v = vt0 / (1 + 0.15 * Math.pow(Math.max(1e-6, re), 0.687)); }
+            return v;
+          }
+          updateGeometry() {
+            const r1 = (this.state.D1_cm / 2) * 0.4, r2 = (this.state.D2_cm / 2) * 0.4;
+            this.geo.R = [r1, r2]; this.geo.feedX = LAYOUT.COL_X[0] - r1 - 1.7;
+            this.geo.paths = {
+              feed: new SimplePath([[this.geo.feedX, LAYOUT.HOPPER_BOTTOM, 0], [this.geo.feedX, 1.8, 0], [LAYOUT.COL_X[0], 1.2, 0]]),
+              c1ToC2: new SimplePath([[LAYOUT.COL_X[0], LAYOUT.REDUCER_TOP, 0], [LAYOUT.COL_X[0], 7.1, 0], [LAYOUT.COL_X[1], 7.1, 0], [LAYOUT.COL_X[1], -1.8, 0]]),
+              c2ToTank: new SimplePath([[LAYOUT.COL_X[1], LAYOUT.REDUCER_TOP, 0], [LAYOUT.COL_X[1], 7.0, 0], [LAYOUT.TANK_X, 7.0, 0], [LAYOUT.TANK_X, LAYOUT.TANK_TOP - 0.3, 0]])
+            };
+          }
+          updateModel() {
+            const s = this.state, Q = (s.Q_Lmin / 1000) / 60, mu = s.mu_mPas * 1e-3;
+            const D1 = s.D1_cm / 100, D2 = s.D2_cm / 100;
+            const vf1 = Q / (Math.PI * Math.pow(D1/2, 2)), vf2 = Q / (Math.PI * Math.pow(D2/2, 2));
+            const dRho = Math.max(10, s.rho_p - s.rho_f);
+            const solveDpc = vf => {
+              if (!s.reCorrection) return Math.sqrt((18 * mu * vf) / (s.g * dRho)) * 1e6;
+              let lo = 1e-6, hi = 2e-3;
+              for (let i = 0; i < 25; i++) { const mid = 0.5*(lo+hi); if (this.vt(mid) < vf) lo = mid; else hi = mid; }
+              return 0.5*(lo+hi)*1e6;
+            };
+            const dpc1 = solveDpc(vf1), dpc2 = solveDpc(vf2);
+            const re1 = (s.rho_f * vf1 * dpc1 * 1e-6) / mu, re2 = (s.rho_f * vf2 * dpc2 * 1e-6) / mu;
+            const span = 130, f0 = Math.max(0, Math.min(1, (145 - dpc1) / span)), f2 = Math.max(0, Math.min(1, (dpc2 - 15) / span));
+            this.model = { Q, mu, D: [D1, D2], vf: [vf1, vf2], dpc_um: [dpc1, dpc2], re: [re1, re2], theory: [f0, Math.max(0, 1 - f0 - f2), f2] };
+          }
+          setParams(p) {
+            const d1 = this.state.D1_cm, d2 = this.state.D2_cm;
+            Object.assign(this.state, p);
+            const ch = (d1 !== this.state.D1_cm || d2 !== this.state.D2_cm);
+            if (ch) this.updateGeometry();
+            this.updateModel(); this.history.length = 0;
+            return ch;
+          }
+          spawn(p, init) {
+            p.dp_um = 15 + Math.random() * 130; p.angle = Math.random() * Math.PI * 2; p.rFrac = Math.sqrt(Math.random()) * 0.85;
+            p.stage = init ? (Math.random() < 0.5 ? 'col1' : 'col2') : 'col1'; p.dist = 0; p.hold = 0;
+            const c = p.stage === 'col2' ? 1 : 0;
+            p.y = init ? (-2.2 + Math.random() * 7.2) : (0.8 + (Math.random() - 0.5) * 1.2);
+            p.x = this.geo.cx[c] + Math.cos(p.angle) * p.rFrac * this.geo.R[c];
+            p.z = Math.sin(p.angle) * p.rFrac * this.geo.R[c];
+            p.cls = p.dp_um >= this.model.dpc_um[0] ? 0 : (p.dp_um >= this.model.dpc_um[1] ? 1 : 2);
+            p.rad = 0.045 + Math.min(1.2, p.dp_um / 145) * 0.11;
+          }
+          resetPulse() { this.history.length = 0; for (const p of this.particles) this.spawn(p, false); }
+          step(dt) {
+            const S = 250;
+            for (const p of this.particles) {
+              p.cls = p.dp_um >= this.model.dpc_um[0] ? 0 : (p.dp_um >= this.model.dpc_um[1] ? 1 : 2);
+              p.rad = 0.045 + Math.min(1.2, p.dp_um / 145) * 0.11;
+              const vt = this.vt(p.dp_um * 1e-6);
+              const prof = this.state.parabolic ? (2.0 * (1 - p.rFrac * p.rFrac)) : 1.0;
+              const noise = this.state.dispersion ? ((Math.random() - 0.5) * 0.004) : 0;
+              if (p.stage === 'col1' || p.stage === 'col2') {
+                const c = p.stage === 'col1' ? 0 : 1;
+                p.y += (this.model.vf[c] * prof - vt + noise) * S * dt;
+                p.angle += (c === 0 ? 0.35 : 0.22) * dt;
+                const R = this.geo.R[c] * p.rFrac;
+                p.x = this.geo.cx[c] + Math.cos(p.angle) * R; p.z = Math.sin(p.angle) * R;
+                if (p.y >= LAYOUT.REDUCER_TOP) { p.stage = c === 0 ? 'c1ToC2' : 'c2ToTank'; p.dist = 0; }
+                else if (p.y <= LAYOUT.POT_TOP) { p.stage = c === 0 ? 'pot1' : 'pot2'; p.hold = 0; this.history.push({ cls: p.cls, out: c }); if (this.history.length > 240) this.history.shift(); }
+              } else if (p.stage === 'c1ToC2' || p.stage === 'c2ToTank') {
+                const path = this.geo.paths[p.stage]; p.dist += dt * 7.5;
+                const pt = path.pointAt(p.dist); p.x = pt[0]; p.y = pt[1]; p.z = pt[2];
+                if (p.dist >= path.length) {
+                  if (p.stage === 'c1ToC2') { p.stage = 'col2'; p.y = -1.6; }
+                  else { p.stage = 'tank'; p.hold = 0; this.history.push({ cls: p.cls, out: 2 }); if (this.history.length > 240) this.history.shift(); }
+                }
+              } else { p.hold += dt; p.y -= dt * 0.25; if (p.hold > 1.6) this.spawn(p, false); }
+            }
+            for (const t of this.tracers) {
+              const c = t.col; t.y += this.model.vf[c] * S * 1.25 * dt;
+              if (t.y > LAYOUT.COL_TOP) t.y = LAYOUT.COL_BOTTOM;
+              t.x = this.geo.cx[c] + Math.cos(t.angle) * t.rFrac * this.geo.R[c];
+              t.z = Math.sin(t.angle) * t.rFrac * this.geo.R[c];
+            }
+          }
+          stats() {
+            const n = this.history.length; if (!n) return { n: 0, fractions: [0,0,0], efficiency: 1 };
+            const c = [0,0,0]; let ok = 0;
+            for (const h of this.history) { c[h.out]++; if (h.cls === h.out) ok++; }
+            return { n, fractions: c.map(x => x / n), efficiency: ok / n };
+          }
+        }
+        return { LAYOUT, Simulation };
+      })();
+    }
+  </script>
 
   <!-- Three.js r128 + OrbitControls por CDN, con CDN de respaldo -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -606,6 +1053,90 @@
     const L = SIM.LAYOUT;
     const sim = new SIM.Simulation({ count: 480 });
     const $ = id => document.getElementById(id);
+
+    // =========================================================================
+    // CONECTOR EN TIEMPO REAL: DATOS DE CÁMARA -> MOTOR FÍSICO 3D (sim.js)
+    // =========================================================================
+    const scannedSolid = {
+      active: false,
+      diameters_um: [],
+      sphericity: 1.0,
+      d10: 0,
+      d50: 0,
+      d90: 0
+    };
+
+    // Detecta automáticamente el nombre de la propiedad de diámetro en sim.particles
+    function assignParticleDiameter(p, dp_um) {
+      let assigned = false;
+      for (const k of ['dp_um', 'd_um', 'dp', 'd', 'diameter']) {
+        if (k in p) {
+          p[k] = (k === 'd' && p[k] < 0.01) ? (dp_um * 1e-6) : dp_um;
+          assigned = true;
+        }
+      }
+      if (!assigned) p.dp_um = dp_um;
+      p._scannedDpUm = dp_um;
+      p.cls = dp_um >= sim.model.dpc_um[0] ? 0 : (dp_um >= sim.model.dpc_um[1] ? 1 : 2);
+      p.rad = 0.045 + Math.min(1.25, dp_um / 145) * 0.11;
+    }
+
+    function syncScannedTheory() {
+      if (!scannedSolid.active || !scannedSolid.diameters_um.length) return;
+      const dpc1 = sim.model.dpc_um[0], dpc2 = sim.model.dpc_um[1];
+      const sqrtPsi = Math.sqrt(scannedSolid.sphericity);
+      let c0 = 0, c1 = 0, c2 = 0;
+      for (const rawD of scannedSolid.diameters_um) {
+        const dEff = rawD * sqrtPsi;
+        if (dEff >= dpc1) c0++;
+        else if (dEff >= dpc2) c1++;
+        else c2++;
+      }
+      const tot = scannedSolid.diameters_um.length;
+      sim.model.theory = [c0 / tot, c1 / tot, c2 / tot];
+    }
+
+    function applyScannedSampleToParticles() {
+      if (!scannedSolid.active || !scannedSolid.diameters_um.length) return;
+      const arr = scannedSolid.diameters_um;
+      const sqrtPsi = Math.sqrt(scannedSolid.sphericity);
+      for (let i = 0; i < sim.particles.length; i++) {
+        const dEff = arr[i % arr.length] * sqrtPsi;
+        assignParticleDiameter(sim.particles[i], dEff);
+      }
+      syncScannedTheory();
+    }
+
+    // Envolver setParams, resetPulse y step para mantener los diámetros escaneados incluso tras reciclar partículas
+    const origSetParams = sim.setParams.bind(sim);
+    sim.setParams = function (partial) {
+      const geomChanged = origSetParams(partial);
+      if (scannedSolid.active) syncScannedTheory();
+      return geomChanged;
+    };
+
+    const origResetPulse = sim.resetPulse.bind(sim);
+    sim.resetPulse = function () {
+      origResetPulse();
+      if (scannedSolid.active) applyScannedSampleToParticles();
+    };
+
+    const origStep = sim.step.bind(sim);
+    sim.step = function (dt) {
+      if (scannedSolid.active) {
+        for (let i = 0; i < sim.particles.length; i++) {
+          const p = sim.particles[i];
+          if (p._scannedDpUm !== undefined) assignParticleDiameter(p, p._scannedDpUm);
+        }
+      }
+      origStep(dt);
+      if (scannedSolid.active) {
+        for (let i = 0; i < sim.particles.length; i++) {
+          const p = sim.particles[i];
+          if (p._scannedDpUm !== undefined) assignParticleDiameter(p, p._scannedDpUm);
+        }
+      }
+    };
 
     // =========================================================================
     // 1. ECUACIONES (KaTeX)
@@ -820,6 +1351,379 @@
     });
 
     let showStreamlines = true;
+
+    // =========================================================================
+    // 2.5 LÓGICA DE VISIÓN ARTIFICIAL Y ESCÁNER MÓVIL
+    // =========================================================================
+    const scannerModal = $('scanner-modal');
+    const scanVideo = $('scan-video');
+    const scanCanvas = $('scan-canvas');
+    const scanCtx = scanCanvas.getContext('2d', { willReadFrequently: true });
+    const histCanvas = $('hist-canvas');
+    const histCtx = histCanvas.getContext('2d');
+
+    const bufferCanvas = document.createElement('canvas');
+    bufferCanvas.width = 320;
+    bufferCanvas.height = 240;
+    const bufferCtx = bufferCanvas.getContext('2d', { willReadFrequently: true });
+
+    let activeStream = null;
+    let sourceType = 'synthetic'; // 'synthetic' | 'camera' | 'photo'
+    let isFrozen = false;
+    let loadedPhoto = null;
+    let synthParticles = [];
+    let currentPrescription = null;
+
+    function buildSyntheticSample() {
+      synthParticles = [];
+      let tries = 0;
+      while (synthParticles.length < 50 && tries < 700) {
+        tries++;
+        const rPx = 3.0 + Math.pow(Math.random(), 1.3) * 11.5;
+        const x = 32 + Math.random() * (320 - 64);
+        const y = 26 + Math.random() * (240 - 52);
+        let overlap = false;
+        for (const g of synthParticles) {
+          if (Math.hypot(x - g.x, y - g.y) < rPx + g.rPx + 4) { overlap = true; break; }
+        }
+        if (!overlap) {
+          const pts = [];
+          const nv = 9;
+          const aspect = 0.74 + Math.random() * 0.26;
+          const rot = Math.random() * Math.PI;
+          for (let k = 0; k < nv; k++) {
+            const a = (k / nv) * Math.PI * 2;
+            const r = rPx * (0.85 + Math.random() * 0.25);
+            pts.push([Math.cos(a) * r, Math.sin(a) * r * aspect]);
+          }
+          synthParticles.push({ x, y, rPx, rot, pts, tone: 25 + Math.floor(Math.random() * 35) });
+        }
+      }
+    }
+    buildSyntheticSample();
+
+    function captureFrameToBuffer() {
+      const W = bufferCanvas.width, H = bufferCanvas.height;
+      if (sourceType === 'camera' && scanVideo.readyState >= 2) {
+        bufferCtx.drawImage(scanVideo, 0, 0, W, H);
+      } else if (sourceType === 'photo' && loadedPhoto) {
+        bufferCtx.drawImage(loadedPhoto, 0, 0, W, H);
+      } else {
+        const g = bufferCtx.createRadialGradient(W/2, H/2, 15, W/2, H/2, 185);
+        g.addColorStop(0, '#f8fafc');
+        g.addColorStop(1, '#cbd5e1');
+        bufferCtx.fillStyle = g;
+        bufferCtx.fillRect(0, 0, W, H);
+
+        for (const p of synthParticles) {
+          bufferCtx.save();
+          bufferCtx.translate(p.x, p.y);
+          bufferCtx.rotate(p.rot);
+          bufferCtx.beginPath();
+          p.pts.forEach((pt, idx) => idx === 0 ? bufferCtx.moveTo(pt[0], pt[1]) : bufferCtx.lineTo(pt[0], pt[1]));
+          bufferCtx.closePath();
+          bufferCtx.fillStyle = `rgb(${p.tone}, ${p.tone + 6}, ${p.tone + 12})`;
+          bufferCtx.fill();
+          bufferCtx.restore();
+        }
+      }
+    }
+
+    function analyzeParticlesFrame() {
+      if (!isFrozen) captureFrameToBuffer();
+
+      const W = bufferCanvas.width, H = bufferCanvas.height;
+      const img = bufferCtx.getImageData(0, 0, W, H);
+      const d = img.data;
+
+      const fov_mm = parseFloat($('slider-scan-fov').value);
+      const thresh = parseInt($('slider-scan-thresh').value, 10);
+      const darkSolids = $('chk-scan-dark').checked;
+      const rho_p = parseFloat($('select-scan-rho').value);
+
+      const x0 = Math.floor(W * 0.08), x1 = Math.floor(W * 0.92);
+      const y0 = Math.floor(H * 0.08), y1 = Math.floor(H * 0.92);
+      const roiW = x1 - x0;
+      const umPerPx = (fov_mm * 1000) / roiW;
+
+      const bin = new Uint8Array(W * H);
+      for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) {
+          const i = (y * W + x) * 4;
+          const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+          if (darkSolids ? (lum < thresh) : (lum > thresh)) bin[y * W + x] = 1;
+        }
+      }
+
+      const seen = new Uint8Array(W * H);
+      const qx = new Int16Array(W * H);
+      const qy = new Int16Array(W * H);
+      const grains = [];
+
+      for (let y = y0 + 1; y < y1 - 1; y++) {
+        for (let x = x0 + 1; x < x1 - 1; x++) {
+          const idx = y * W + x;
+          if (bin[idx] && !seen[idx]) {
+            let head = 0, tail = 0;
+            qx[tail] = x; qy[tail] = y; tail++;
+            seen[idx] = 1;
+
+            let area = 0, perim = 0, sx = 0, sy = 0, border = false;
+            while (head < tail) {
+              const cx = qx[head], cy = qy[head]; head++;
+              area++; sx += cx; sy += cy;
+              if (cx <= x0 + 1 || cx >= x1 - 2 || cy <= y0 + 1 || cy >= y1 - 2) border = true;
+
+              const nbs = [[cx+1, cy], [cx-1, cy], [cx, cy+1], [cx, cy-1]];
+              let edge = false;
+              for (let k = 0; k < 4; k++) {
+                const nx = nbs[k][0], ny = nbs[k][1], nIdx = ny * W + nx;
+                if (!bin[nIdx]) edge = true;
+                else if (!seen[nIdx]) { seen[nIdx] = 1; qx[tail] = nx; qy[tail] = ny; tail++; }
+              }
+              if (edge) perim++;
+            }
+
+            if (!border && area >= 10 && area <= 2600) {
+              const rPx = Math.sqrt(area / Math.PI);
+              const dp_um = 2 * rPx * umPerPx;
+              const psi = Math.min(1.0, Math.max(0.45, (4 * Math.PI * area) / Math.pow(Math.max(1, perim * 1.12), 2)));
+              grains.push({ cx: sx / area, cy: sy / area, rPx, dp_um, psi });
+            }
+          }
+        }
+      }
+
+      const sorted = grains.map(g => g.dp_um).sort((a, b) => a - b);
+      const N = sorted.length;
+      const pctVal = q => N ? sorted[Math.min(N - 1, Math.floor(q * N))] : 0;
+
+      const d10 = pctVal(0.10), d33 = pctVal(0.33), d50 = pctVal(0.50), d67 = pctVal(0.67), d90 = pctVal(0.90);
+      const meanPsi = N ? (grains.reduce((s, g) => s + g.psi, 0) / N) : 0.85;
+
+      // Dibujar resultado en el canvas del escáner
+      scanCtx.drawImage(bufferCanvas, 0, 0, scanCanvas.width, scanCanvas.height);
+      const sx = scanCanvas.width / W, sy = scanCanvas.height / H;
+
+      scanCtx.strokeStyle = 'rgba(56, 189, 248, 0.8)';
+      scanCtx.lineWidth = 1.5;
+      scanCtx.setLineDash([6, 4]);
+      scanCtx.strokeRect(x0 * sx, y0 * sy, roiW * sx, (y1 - y0) * sy);
+      scanCtx.setLineDash([]);
+
+      grains.forEach((g, idx) => {
+        const color = g.dp_um >= d67 ? '#f59e0b' : (g.dp_um >= d33 ? '#06b6d4' : '#ec4899');
+        scanCtx.beginPath();
+        scanCtx.arc(g.cx * sx, g.cy * sy, g.rPx * sx + 1.5, 0, Math.PI * 2);
+        scanCtx.strokeStyle = color;
+        scanCtx.lineWidth = 2;
+        scanCtx.stroke();
+
+        if (idx % 4 === 0) {
+          scanCtx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+          scanCtx.fillRect(g.cx * sx + 4, g.cy * sy - 12, 42, 13);
+          scanCtx.fillStyle = color;
+          scanCtx.font = 'bold 10px sans-serif';
+          scanCtx.fillText(`${Math.round(g.dp_um)}µm`, g.cx * sx + 6, g.cy * sy - 2);
+        }
+      });
+
+      // Cálculo de prescripción de elutriación
+      const mu = sim.state.mu_mPas * 1e-3;
+      const dRho = Math.max(10, rho_p - sim.state.rho_f);
+      const gAcc = sim.state.g;
+
+      const dpc1_m = Math.max(25, d67) * 1e-6 * Math.sqrt(meanPsi);
+      const dpc2_m = Math.max(12, d33) * 1e-6 * Math.sqrt(meanPsi);
+
+      const vf1 = (gAcc * dpc1_m * dpc1_m * dRho) / (18 * mu);
+      const vf2 = (gAcc * dpc2_m * dpc2_m * dRho) / (18 * mu);
+
+      const D1_cm = 5.95;
+      const A1 = Math.PI * Math.pow((D1_cm / 100) / 2, 2);
+      const Q_m3s = vf1 * A1;
+      const Q_Lmin = Math.max(0.50, Math.min(4.00, Q_m3s * 1000 * 60));
+
+      const A2 = Q_m3s / Math.max(1e-5, vf2);
+      const D2_cm = Math.max(8.0, Math.min(18.0, Math.sqrt((4 * A2) / Math.PI) * 100));
+      const re1 = (sim.state.rho_f * vf1 * dpc1_m) / mu;
+
+      $('val-scan-fov').textContent = `${fov_mm.toFixed(2)} mm`;
+      $('val-scan-thresh').textContent = `${thresh}`;
+      $('scan-kpi-n').textContent = `${N}`;
+      $('scan-kpi-scale').textContent = `Resolución: ${umPerPx.toFixed(2)} µm/px`;
+      $('scan-kpi-d50').textContent = N ? `${d50.toFixed(1)} µm` : '—';
+      $('scan-kpi-d1090').textContent = N ? `d10: ${d10.toFixed(0)} | d90: ${d90.toFixed(0)} µm` : '—';
+      $('scan-kpi-psi').textContent = N ? meanPsi.toFixed(2) : '—';
+      $('scan-kpi-cuts').textContent = N ? `${d67.toFixed(0)} / ${d33.toFixed(0)} µm` : '— / —';
+
+      if (N >= 5) {
+        $('scan-recipe-box').innerHTML = `
+          <strong>Procedimiento de Elutriación Calculado:</strong><br/>
+          • <b>Etapa 1 (Columna 1, $D_1 = ${D1_cm.toFixed(2)}$ cm):</b> Inyectar agua a <b>$Q = ${Q_Lmin.toFixed(2)}$ L/min</b> ($v_{f1} = ${(vf1*1000).toFixed(2)}$ mm/s) para sedimentar los gruesos mayores a <b>${d67.toFixed(0)} µm</b>.<br/>
+          • <b>Etapa 2 (Columna 2, $D_2 = ${D2_cm.toFixed(2)}$ cm):</b> Reducir la velocidad superficial a <b>$v_{f2} = ${(vf2*1000).toFixed(2)}$ mm/s</b> para capturar medios entre <b>${d33.toFixed(0)} y ${d67.toFixed(0)} µm</b>.<br/>
+          • <b>Régimen Hidrodinámico:</b> $Re_{p1} = ${re1.toFixed(2)}$ (${re1 > 1 ? 'Requiere activar corrección Schiller-Naumann' : 'Régimen laminar de Stokes válido'}).
+        `;
+      } else {
+        $('scan-recipe-box').innerHTML = `<strong>Ajusta el deslizador de contraste:</strong> Se necesitan al menos 5 partículas dentro del recuadro azul para calcular los parámetros.`;
+      }
+
+      drawScanHistogram(sorted, d33, d67);
+
+      currentPrescription = {
+        diameters: sorted,
+        sphericity: meanPsi,
+        d10, d50, d90,
+        Q_Lmin: Number(Q_Lmin.toFixed(2)),
+        D1_cm: Number(D1_cm.toFixed(2)),
+        D2_cm: Number(D2_cm.toFixed(2)),
+        rho_p,
+        reCorrection: re1 > 1.0
+      };
+    }
+
+    function drawScanHistogram(sorted, d33, d67) {
+      const W = histCanvas.width, H = histCanvas.height;
+      histCtx.clearRect(0, 0, W, H);
+      const bins = 18, minD = 10, maxD = 160, step = (maxD - minD) / bins;
+      const counts = new Array(bins).fill(0);
+      for (const v of sorted) {
+        counts[Math.max(0, Math.min(bins - 1, Math.floor((v - minD) / step)))]++;
+      }
+      const maxC = Math.max(1, ...counts);
+      const padL = 22, padR = 12, padT = 8, padB = 18;
+      const pw = W - padL - padR, ph = H - padT - padB, bw = pw / bins;
+
+      for (let i = 0; i < bins; i++) {
+        const mid = minD + (i + 0.5) * step;
+        const bh = (counts[i] / maxC) * ph;
+        histCtx.fillStyle = mid >= d67 ? '#f59e0b' : (mid >= d33 ? '#06b6d4' : '#ec4899');
+        histCtx.fillRect(padL + i * bw + 2, padT + ph - bh, bw - 4, bh);
+      }
+      histCtx.fillStyle = '#94a3b8';
+      histCtx.font = '10px sans-serif';
+      [20, 60, 100, 140].forEach(val => {
+        const x = padL + ((val - minD) / (maxD - minD)) * pw;
+        histCtx.fillText(`${val}µm`, x - 12, H - 4);
+      });
+    }
+
+    async function startCameraStream() {
+      try {
+        stopCameraStream();
+        activeStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 640 }, height: { ideal: 480 } },
+          audio: false
+        });
+        scanVideo.srcObject = activeStream;
+        await scanVideo.play();
+        sourceType = 'camera';
+        isFrozen = false;
+        $('scan-status').textContent = 'Cámara del móvil activa en tiempo real';
+      } catch (e) {
+        $('scan-status').textContent = 'Cámara bloqueada o no disponible (usa Tomar/Subir Foto o Muestra Sintética)';
+      }
+    }
+
+    function stopCameraStream() {
+      if (activeStream) {
+        activeStream.getTracks().forEach(t => t.stop());
+        activeStream = null;
+      }
+    }
+
+    $('btn-open-scanner').addEventListener('click', () => {$('select-scan-rho').value = String(sim.state.rho_p);
+      scannerModal.classList.add('open');
+      analyzeParticlesFrame();
+    });
+
+    $('btn-close-scanner').addEventListener('click', () => {
+      scannerModal.classList.remove('open');
+      stopCameraStream();
+    });
+
+    $('btn-cam-start').addEventListener('click', startCameraStream);
+
+    $('btn-cam-freeze').addEventListener('click', () => {
+      isFrozen = !isFrozen;
+      $('btn-cam-freeze').textContent = isFrozen ? '▶️ Reanudar Video' : '❄️ Congelar Imagen';
+      $('scan-status').textContent = isFrozen ? 'Imagen congelada para inspección' : 'Escaneo activo';
+    });
+
+    $('btn-cam-synth').addEventListener('click', () => {
+      stopCameraStream();
+      sourceType = 'synthetic';
+      isFrozen = false;
+      buildSyntheticSample();
+      $('scan-status').textContent = 'Muestra sintética generada';
+      analyzeParticlesFrame();
+    });
+
+    $('input-cam-file').addEventListener('change', e => {
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      stopCameraStream();
+      const img = new Image();
+      img.onload = () => {
+        loadedPhoto = img;
+        sourceType = 'photo';
+        isFrozen = false;
+        $('scan-status').textContent = `Imagen analizada: ${f.name}`;
+        analyzeParticlesFrame();
+      };
+      img.src = URL.createObjectURL(f);
+    });
+
+    ['slider-scan-fov', 'slider-scan-thresh', 'chk-scan-dark', 'select-scan-rho'].forEach(id => {
+      $(id).addEventListener('input', analyzeParticlesFrame);$(id).addEventListener('change', analyzeParticlesFrame);
+    });
+
+    document.querySelectorAll('.fov-preset').forEach(b => {
+      b.addEventListener('click', () => {
+        document.querySelectorAll('.fov-preset').forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+        $('slider-scan-fov').value = b.dataset.fov;
+        analyzeParticlesFrame();
+      });
+    });
+
+    $('btn-connect-sim').addEventListener('click', () => {
+      if (!currentPrescription || currentPrescription.diameters.length < 3) return;
+      scannedSolid.active = true;
+      scannedSolid.diameters_um = currentPrescription.diameters.slice();
+      scannedSolid.sphericity = currentPrescription.sphericity;
+      scannedSolid.d10 = currentPrescription.d10;
+      scannedSolid.d50 = currentPrescription.d50;
+      scannedSolid.d90 = currentPrescription.d90;
+
+      $('chk-recorr').checked = currentPrescription.reCorrection;
+      apply({
+        Q_Lmin: currentPrescription.Q_Lmin,
+        D1_cm: currentPrescription.D1_cm,
+        D2_cm: currentPrescription.D2_cm,
+        rho_p: currentPrescription.rho_p,
+        reCorrection: currentPrescription.reCorrection
+      });
+      syncSliders();
+      sim.resetPulse();
+      updateUI();
+
+      $('badge-scan-live').style.display = 'inline-block';
+      $('scanned-status-card').style.display = 'block';$('scanned-status-desc').innerHTML =
+        `N = <b>${scannedSolid.diameters_um.length}</b> granos | d<sub>50</sub> = <b>${scannedSolid.d50.toFixed(1)} µm</b> | ψ = <b>${scannedSolid.sphericity.toFixed(2)}</b>`;
+
+      scannerModal.classList.remove('open');
+      stopCameraStream();
+    });
+
+    $('btn-restore-uniform').addEventListener('click', () => {
+      scannedSolid.active = false;
+      for (const p of sim.particles) delete p._scannedDpUm;
+      $('badge-scan-live').style.display = 'none';$('scanned-status-card').style.display = 'none';
+      apply({ Q_Lmin: sim.state.Q_Lmin });
+      sim.resetPulse();
+      updateUI();
+    });
 
     // =========================================================================
     // 3. VISTA 3D (Three.js)
@@ -1060,10 +1964,8 @@
       // ---------------- Etiquetas flotantes ----------------
       const labels = [
         { el: $('label-col1'), pos: () => [L.COL_X[0], -7.2, 0] },
-        { el: $('label-col2'), pos: () => [L.COL_X[1], -7.2, 0] },
-        { el: $('label-overflow'), pos: () => [L.TANK_X, -3.6, 0] },
-        { el: $('label-feed'), pos: () => [sim.geo.feedX, L.HOPPER_TOP + 0.55, 0] },
-        { el: $('label-water'), pos: () => [L.COL_X[0], L.INLET_Y - 0.6, -(sim.geo.R[0] + 1.9)] }
+        { el: $('label-col2'), pos: () => [L.COL_X[1], -7.2, 0] }, { el:$('label-overflow'), pos: () => [L.TANK_X, -3.6, 0] },
+        { el: $('label-feed'), pos: () => [sim.geo.feedX, L.HOPPER_TOP + 0.55, 0] }, { el:$('label-water'), pos: () => [L.COL_X[0], L.INLET_Y - 0.6, -(sim.geo.R[0] + 1.9)] }
       ];
       const tmpV = new THREE.Vector3();
 
@@ -1118,6 +2020,7 @@
 
     let last = performance.now();
     let statsTimer = 0;
+    let camLoopTimer = 0;
 
     function frame(now) {
       requestAnimationFrame(frame);
@@ -1129,11 +2032,19 @@
 
       statsTimer += dt;
       if (statsTimer > 0.4) { statsTimer = 0; updateMeasured(); }
+
+      if (scannerModal.classList.contains('open') && sourceType === 'camera' && !isFrozen) {
+        camLoopTimer += dt;
+        if (camLoopTimer > 0.10) {
+          camLoopTimer = 0;
+          analyzeParticlesFrame();
+        }
+      }
     }
     requestAnimationFrame(frame);
 
     // Acceso para depuración desde la consola del navegador
-    window.elutriador = { sim, updateUI };
+    window.elutriador = { sim, updateUI, scannedSolid };
   })();
   </script>
 </body>
