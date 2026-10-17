@@ -1,0 +1,1159 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Simulador 3D de Elutriación Multietapa | Ingeniería de Procesos</title>
+  <style>
+    :root {
+      --bg-dark: #0b1120;
+      --panel-bg: rgba(15, 23, 42, 0.86);
+      --border-glow: rgba(56, 189, 248, 0.28);
+      --accent: #38bdf8;
+      --coarse: #f59e0b;
+      --medium: #06b6d4;
+      --fine: #ec4899;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      user-select: none;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    #canvas-container {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 1;
+    }
+
+    /* Barra superior */
+    .top-bar {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      right: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--panel-bg);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-glow);
+      border-radius: 12px;
+      padding: 12px 20px;
+      z-index: 10;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    }
+
+    .brand h1 {
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .badge {
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent);
+      border: 1px solid var(--accent);
+      font-size: 0.72rem;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-weight: 600;
+    }
+
+    .brand p {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .camera-controls {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      background: rgba(30, 41, 59, 0.9);
+      color: var(--text-main);
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      padding: 7px 13px;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .btn:hover, .btn.active {
+      background: rgba(56, 189, 248, 0.2);
+      border-color: var(--accent);
+      color: #fff;
+      transform: translateY(-1px);
+    }
+
+    /* Panel Izquierdo: Controles de Operación */
+    .left-panel {
+      position: absolute;
+      top: 90px;
+      left: 16px;
+      width: 340px;
+      max-height: calc(100vh - 106px);
+      overflow-y: auto;
+      background: var(--panel-bg);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-glow);
+      border-radius: 12px;
+      padding: 18px;
+      z-index: 10;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    }
+
+    /* Panel Derecho: Telemetría Hidrodinámica */
+    .right-panel {
+      position: absolute;
+      top: 90px;
+      right: 16px;
+      width: 350px;
+      max-height: calc(100vh - 106px);
+      overflow-y: auto;
+      background: var(--panel-bg);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-glow);
+      border-radius: 12px;
+      padding: 18px;
+      z-index: 10;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    }
+
+    .section-title {
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--accent);
+      margin-bottom: 12px;
+      font-weight: 700;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+      padding-bottom: 6px;
+    }
+
+    .control-group {
+      margin-bottom: 14px;
+    }
+
+    .control-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.82rem;
+      margin-bottom: 5px;
+    }
+
+    .control-val {
+      color: var(--accent);
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+      cursor: pointer;
+      height: 6px;
+      border-radius: 4px;
+      background: #1e293b;
+    }
+
+    .preset-row {
+      display: flex;
+      gap: 6px;
+      margin-top: 6px;
+    }
+
+    .preset-btn {
+      flex: 1;
+      padding: 5px 6px;
+      font-size: 0.72rem;
+      background: rgba(15, 23, 42, 0.8);
+      color: var(--text-muted);
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: 0.15s;
+    }
+
+    .preset-btn:hover, .preset-btn.active {
+      color: #fff;
+      border-color: var(--accent);
+      background: rgba(56, 189, 248, 0.18);
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 10px;
+      background: rgba(30, 41, 59, 0.6);
+      border-radius: 8px;
+      margin-bottom: 10px;
+      font-size: 0.8rem;
+    }
+
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .kpi-card {
+      background: rgba(30, 41, 59, 0.65);
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      border-radius: 8px;
+      padding: 10px;
+    }
+
+    .kpi-card .label {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+    }
+
+    .kpi-card .value {
+      font-size: 1.05rem;
+      font-weight: 700;
+      margin-top: 3px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .kpi-card .sub {
+      font-size: 0.68rem;
+      margin-top: 2px;
+      color: #cbd5e1;
+    }
+
+    .legend-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(30, 41, 59, 0.5);
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 0.8rem;
+    }
+
+    .legend-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      display: inline-block;
+      box-shadow: 0 0 8px currentColor;
+    }
+
+    .formula-box {
+      background: rgba(15, 23, 42, 0.9);
+      border-left: 3px solid var(--accent);
+      padding: 10px;
+      border-radius: 6px;
+      font-size: 0.76rem;
+      color: #cbd5e1;
+      line-height: 1.45;
+      margin-top: 12px;
+    }
+
+    /* Etiquetas 3D flotantes */
+    .floating-label {
+      position: absolute;
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      color: #fff;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 0.74rem;
+      pointer-events: none;
+      transform: translate(-50%, -50%);
+      z-index: 5;
+      white-space: nowrap;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
+
+    @media (max-width: 900px) {
+      .left-panel, .right-panel {
+        width: 280px;
+        font-size: 0.85rem;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Contenedor WebGL -->
+  <div id="canvas-container"></div>
+
+  <!-- Etiquetas espaciales sincronizadas con la cámara 3D -->
+  <div id="label-col1" class="floating-label">Columna 1 (Alta Velocidad)</div>
+  <div id="label-col2" class="floating-label">Columna 2 (Baja Velocidad)</div>
+  <div id="label-overflow" class="floating-label">Tanque de Rebose (Finos)</div>
+
+  <!-- Barra Superior -->
+  <header class="top-bar">
+    <div class="brand">
+      <h1>
+        Simulador 3D de Elutriación Hidráulica en Serie
+        <span class="badge">Tema 3 • Ley de Stokes</span>
+      </h1>
+      <p>Clasificación hidrogranulométrica continua en contracorriente • 60 FPS WebGL</p>
+    </div>
+    <div class="camera-controls">
+      <button class="btn active" onclick="setCameraView('overview', this)">Vista General 3D</button>
+      <button class="btn" onclick="setCameraView('col1', this)">Enfocar Columna 1</button>
+      <button class="btn" onclick="setCameraView('col2', this)">Enfocar Columna 2</button>
+      <button class="btn" onclick="setCameraView('top', this)">Vista Planta</button>
+      <button class="btn" onclick="resetParticles()">Reiniciar Pulso</button>
+    </div>
+  </header>
+
+  <!-- Panel Izquierdo: Parámetros de Diseño y Operación -->
+  <aside class="left-panel">
+    <div class="section-title">Variables de Operación</div>
+
+    <div class="control-group">
+      <div class="control-header">
+        <span>Caudal de Agua ($Q$)</span>
+        <span class="control-val" id="val-flow">1.50 L/min</span>
+      </div>
+      <input type="range" id="slider-flow" min="0.50" max="4.00" step="0.05" value="1.50" />
+      <div class="preset-row">
+        <button class="preset-btn active" onclick="setPresetCase()">Diseño Base (1.5 L/min)</button>
+        <button class="preset-btn" onclick="setHighFlowCase()">Arrastre (3.0 L/min)</button>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <div class="control-header">
+        <span>Densidad Partícula ($\rho_p$)</span>
+        <span class="control-val" id="val-density">2650 kg/m³</span>
+      </div>
+      <input type="range" id="slider-density" min="1500" max="7500" step="50" value="2650" />
+      <div class="preset-row">
+        <button class="preset-btn active" id="btn-quartz" onclick="setMineral(2650, 'btn-quartz')">Cuarzo (2650)</button>
+        <button class="preset-btn" id="btn-barite" onclick="setMineral(4500, 'btn-barite')">Barita (4500)</button>
+        <button class="preset-btn" id="btn-galena" onclick="setMineral(7500, 'btn-galena')">Galena (7500)</button>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <div class="control-header">
+        <span>Viscosidad del Fluido ($\mu$)</span>
+        <span class="control-val" id="val-visc">1.00 mPa·s</span>
+      </div>
+      <input type="range" id="slider-visc" min="0.50" max="3.50" step="0.05" value="1.00" />
+    </div>
+
+    <div class="section-title" style="margin-top: 16px;">Geometría de Columnas</div>
+
+    <div class="control-group">
+      <div class="control-header">
+        <span>Diámetro Columna 1 ($D_1$)</span>
+        <span class="control-val" id="val-d1">5.95 cm</span>
+      </div>
+      <input type="range" id="slider-d1" min="4.00" max="9.00" step="0.05" value="5.95" />
+    </div>
+
+    <div class="control-group">
+      <div class="control-header">
+        <span>Diámetro Columna 2 ($D_2$)</span>
+        <span class="control-val" id="val-d2">11.90 cm</span>
+      </div>
+      <input type="range" id="slider-d2" min="8.00" max="18.00" step="0.10" value="11.90" />
+    </div>
+
+    <div class="section-title" style="margin-top: 16px;">Efectos Hidrodinámicos</div>
+
+    <div class="toggle-row">
+      <span>Perfil Parabólico (Efecto Pared)</span>
+      <input type="checkbox" id="chk-parabolic" />
+    </div>
+
+    <div class="toggle-row">
+      <span>Mostrar Líneas de Flujo Ascendente</span>
+      <input type="checkbox" id="chk-streamlines" checked />
+    </div>
+  </aside>
+
+  <!-- Panel Derecho: Telemetría y Resultados en Vivo -->
+  <aside class="right-panel">
+    <div class="section-title">Telemetría Hidrodinámica</div>
+
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="label">Velocidad Fluido Col. 1 ($v_{f1}$)</div>
+        <div class="value" id="kpi-vf1" style="color: #fbbf24;">8.99 mm/s</div>
+        <div class="sub" id="kpi-re1">Re corte 1: 0.90 (Laminar)</div>
+      </div>
+      <div class="kpi-card">
+        <div class="label">Diámetro Corte 1 ($d_{pc1}$)</div>
+        <div class="value" id="kpi-dpc1" style="color: #fbbf24;">100.0 µm</div>
+        <div class="sub">Retiene gruesos > dpc1</div>
+      </div>
+      <div class="kpi-card">
+        <div class="label">Velocidad Fluido Col. 2 ($v_{f2}$)</div>
+        <div class="value" id="kpi-vf2" style="color: #22d3ee;">2.25 mm/s</div>
+        <div class="sub" id="kpi-re2">Re corte 2: 0.11 (Laminar)</div>
+      </div>
+      <div class="kpi-card">
+        <div class="label">Diámetro Corte 2 ($d_{pc2}$)</div>
+        <div class="value" id="kpi-dpc2" style="color: #22d3ee;">50.0 µm</div>
+        <div class="sub">Retiene medios > dpc2</div>
+      </div>
+    </div>
+
+    <div class="section-title">Clasificación Granulométrica en Vivo</div>
+    <div class="legend-list">
+      <div class="legend-item">
+        <div class="legend-left">
+          <span class="dot" style="color: var(--coarse); background: var(--coarse);"></span>
+          <div>
+            <strong>Gruesos (Descarga Col. 1)</strong>
+            <div style="font-size: 0.7rem; color: var(--text-muted);" id="leg-coarse-desc">dp > 100.0 µm (vt > vf1)</div>
+          </div>
+        </div>
+        <span class="control-val" id="count-coarse">0%</span>
+      </div>
+
+      <div class="legend-item">
+        <div class="legend-left">
+          <span class="dot" style="color: var(--medium); background: var(--medium);"></span>
+          <div>
+            <strong>Medios (Descarga Col. 2)</strong>
+            <div style="font-size: 0.7rem; color: var(--text-muted);" id="leg-med-desc">50.0 a 100.0 µm (vf2 < vt < vf1)</div>
+          </div>
+        </div>
+        <span class="control-val" id="count-medium">0%</span>
+      </div>
+
+      <div class="legend-item">
+        <div class="legend-left">
+          <span class="dot" style="color: var(--fine); background: var(--fine);"></span>
+          <div>
+            <strong>Finos (Rebose Final)</strong>
+            <div style="font-size: 0.7rem; color: var(--text-muted);" id="leg-fine-desc">dp < 50.0 µm (vt < vf2)</div>
+          </div>
+        </div>
+        <span class="control-val" id="count-fine">0%</span>
+      </div>
+    </div>
+
+    <div class="formula-box">
+      <strong>Balance de Fuerzas (Ley de Stokes):</strong><br/>
+      • Velocidad terminal: $v_t = \frac{g \cdot d_p^2 (\rho_p - \rho_f)}{18 \cdot \mu}$<br/>
+      • Velocidad neta vertical: $v_{\text{neta}} = v_f(r) - v_t$<br/>
+      • Relación de escala: $d_{pc} \propto \frac{1}{D}$ a caudal $Q$ constante.
+    </div>
+  </aside>
+
+  <!-- Librerías Three.js y OrbitControls vía CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+  <script>
+    // =========================================================================
+    // 1. ESTADO FÍSICO Y PARÁMETROS DEL PROCESO (UNIDADES SI)
+    // =========================================================================
+    const state = {
+      Q_Lmin: 1.50,          // Caudal volumétrico (L/min)
+      rho_p: 2650,           // Densidad de partícula (kg/m³) - Cuarzo por defecto
+      rho_f: 1000,           // Densidad del agua a 20°C (kg/m³)
+      mu_mPas: 1.00,         // Viscosidad dinámica (mPa·s)
+      D1_cm: 5.95,           // Diámetro interno Columna 1 (cm)
+      D2_cm: 11.90,          // Diámetro interno Columna 2 (cm)
+      g: 9.81,               // Gravedad (m/s²)
+      parabolicProfile: false,
+      showStreamlines: true,
+      // Variables calculadas
+      vf1: 0,                // m/s
+      vf2: 0,                // m/s
+      dpc1_um: 100,          // µm
+      dpc2_um: 50,           // µm
+      re1: 0,
+      re2: 0
+    };
+
+    function updatePhysicsModel() {
+      const Q_m3s = (state.Q_Lmin / 1000) / 60;
+      const mu = state.mu_mPas * 1e-3;
+      const D1_m = state.D1_cm / 100;
+      const D2_m = state.D2_cm / 100;
+
+      const A1 = Math.PI * Math.pow(D1_m / 2, 2);
+      const A2 = Math.PI * Math.pow(D2_m / 2, 2);
+
+      state.vf1 = Q_m3s / A1;
+      state.vf2 = Q_m3s / A2;
+
+      const deltaRho = Math.max(10, state.rho_p - state.rho_f);
+
+      // Diámetros críticos de corte según Ley de Stokes: d_pc = sqrt(18 * mu * vf / (g * deltaRho))
+      const dpc1_m = Math.sqrt((18 * mu * state.vf1) / (state.g * deltaRho));
+      const dpc2_m = Math.sqrt((18 * mu * state.vf2) / (state.g * deltaRho));
+
+      state.dpc1_um = dpc1_m * 1e6;
+      state.dpc2_um = dpc2_m * 1e6;
+
+      state.re1 = (state.rho_f * state.vf1 * dpc1_m) / mu;
+      state.re2 = (state.rho_f * state.vf2 * dpc2_m) / mu;
+
+      // Actualizar interfaz DOM
+      document.getElementById('val-flow').textContent = `${state.Q_Lmin.toFixed(2)} L/min`;
+      document.getElementById('val-density').textContent = `${state.rho_p} kg/m³`;
+      document.getElementById('val-visc').textContent = `${state.mu_mPas.toFixed(2)} mPa·s`;
+      document.getElementById('val-d1').textContent = `${state.D1_cm.toFixed(2)} cm`;
+      document.getElementById('val-d2').textContent = `${state.D2_cm.toFixed(2)} cm`;
+
+      document.getElementById('kpi-vf1').textContent = `${(state.vf1 * 1000).toFixed(2)} mm/s`;
+      document.getElementById('kpi-dpc1').textContent = `${state.dpc1_um.toFixed(1)} µm`;
+      document.getElementById('kpi-re1').textContent =
+        `Re: ${state.re1.toFixed(2)} (${state.re1 <= 1 ? 'Stokes' : 'Transición'})`;
+
+      document.getElementById('kpi-vf2').textContent = `${(state.vf2 * 1000).toFixed(2)} mm/s`;
+      document.getElementById('kpi-dpc2').textContent = `${state.dpc2_um.toFixed(1)} µm`;
+      document.getElementById('kpi-re2').textContent =
+        `Re: ${state.re2.toFixed(2)} (${state.re2 <= 1 ? 'Stokes' : 'Transición'})`;
+
+      document.getElementById('leg-coarse-desc').textContent =
+        `dp > ${state.dpc1_um.toFixed(1)} µm (vt > vf1)`;
+      document.getElementById('leg-med-desc').textContent =
+        `${state.dpc2_um.toFixed(1)} a ${state.dpc1_um.toFixed(1)} µm`;
+      document.getElementById('leg-fine-desc').textContent =
+        `dp < ${state.dpc2_um.toFixed(1)} µm (vt < vf2)`;
+    }
+
+    // =========================================================================
+    // 2. ESCENA THREE.JS, CÁMARA E ILUMINACIÓN INDUSTRIAL
+    // =========================================================================
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x070b14);
+    scene.fog = new THREE.FogExp2(0x070b14, 0.018);
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 200);
+    camera.position.set(0, 3.5, 22);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
+    container.appendChild(renderer.domElement);
+
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
+    controls.target.set(0, 1.0, 0);
+    controls.maxPolarAngle = Math.PI * 0.85;
+    controls.minDistance = 6;
+    controls.maxDistance = 42;
+
+    // Iluminación
+    const hemiLight = new THREE.HemisphereLight(0xe0f2fe, 0x0f172a, 0.9);
+    scene.add(hemiLight);
+
+    const dirLight1 = new THREE.DirectionalLight(0xffffff, 1.2);
+    dirLight1.position.set(15, 25, 20);
+    scene.add(dirLight1);
+
+    const dirLight2 = new THREE.DirectionalLight(0x38bdf8, 0.7);
+    dirLight2.position.set(-18, -10, -12);
+    scene.add(dirLight2);
+
+    // Rejilla de laboratorio base
+    const gridHelper = new THREE.GridHelper(36, 36, 0x1e293b, 0x0f172a);
+    gridHelper.position.y = -6.8;
+    scene.add(gridHelper);
+
+    // =========================================================================
+    // 3. CONSTRUCCIÓN 3D DEL ELUTRIADOR MULTIETAPA
+    // =========================================================================
+    const COL1_X = -5.0;
+    const COL2_X = 3.2;
+    const TANK_X = 10.2;
+    const COL_HEIGHT = 9.0;
+    const CONE_HEIGHT = 2.2;
+
+    const equipmentGroup = new THREE.Group();
+    scene.add(equipmentGroup);
+
+    // Materiales de ingeniería
+    const glassMat = new THREE.MeshPhysicalMaterial({
+      color: 0xbae6fd,
+      transparent: true,
+      opacity: 0.22,
+      roughness: 0.08,
+      metalness: 0.05,
+      reflectivity: 0.9,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    });
+
+    const waterCoreMat = new THREE.MeshBasicMaterial({
+      color: 0x0284c7,
+      transparent: true,
+      opacity: 0.09,
+      depthWrite: false
+    });
+
+    const flangeMat = new THREE.MeshStandardMaterial({
+      color: 0x475569,
+      metalness: 0.8,
+      roughness: 0.25
+    });
+
+    const pipeMat = new THREE.MeshPhysicalMaterial({
+      color: 0x94a3b8,
+      transparent: true,
+      opacity: 0.35,
+      roughness: 0.2,
+      metalness: 0.2,
+      depthWrite: false
+    });
+
+    let col1Mesh, col2Mesh, cone1Mesh, cone2Mesh;
+    let r1Visual = 1.2;
+    let r2Visual = 2.4;
+
+    function buildElutriatorGeometry() {
+      while (equipmentGroup.children.length > 0) {
+        const obj = equipmentGroup.children[0];
+        equipmentGroup.remove(obj);
+      }
+
+      // Escala visual proporcional a D1 y D2 (1 cm real ≈ 0.20 unidades 3D)
+      r1Visual = (state.D1_cm / 2) * 0.40;
+      r2Visual = (state.D2_cm / 2) * 0.40;
+
+      // --- COLUMNA 1 ---
+      const cyl1Geo = new THREE.CylinderGeometry(r1Visual, r1Visual, COL_HEIGHT, 40, 1, true);
+      col1Mesh = new THREE.Mesh(cyl1Geo, glassMat);
+      col1Mesh.position.set(COL1_X, 1.5, 0);
+      equipmentGroup.add(col1Mesh);
+
+      const water1Geo = new THREE.CylinderGeometry(r1Visual * 0.96, r1Visual * 0.96, COL_HEIGHT, 32);
+      const water1Mesh = new THREE.Mesh(water1Geo, waterCoreMat);
+      water1Mesh.position.set(COL1_X, 1.5, 0);
+      equipmentGroup.add(water1Mesh);
+
+      const cone1Geo = new THREE.CylinderGeometry(r1Visual, 0.35, CONE_HEIGHT, 40, 1, true);
+      cone1Mesh = new THREE.Mesh(cone1Geo, glassMat);
+      cone1Mesh.position.set(COL1_X, -4.1, 0);
+      equipmentGroup.add(cone1Mesh);
+
+      // Colector Inferior 1 (Gruesos)
+      const pot1Geo = new THREE.CylinderGeometry(0.65, 0.65, 1.3, 28);
+      const pot1 = new THREE.Mesh(pot1Geo, flangeMat);
+      pot1.position.set(COL1_X, -5.85, 0);
+      equipmentGroup.add(pot1);
+
+      // Bridas Columna 1
+      const flange1Top = new THREE.Mesh(new THREE.TorusGeometry(r1Visual + 0.08, 0.12, 16, 40), flangeMat);
+      flange1Top.rotation.x = Math.PI / 2;
+      flange1Top.position.set(COL1_X, 6.0, 0);
+      equipmentGroup.add(flange1Top);
+
+      const flange1Bot = flange1Top.clone();
+      flange1Bot.position.set(COL1_X, -3.0, 0);
+      equipmentGroup.add(flange1Bot);
+
+      // --- COLUMNA 2 ---
+      const cyl2Geo = new THREE.CylinderGeometry(r2Visual, r2Visual, COL_HEIGHT, 48, 1, true);
+      col2Mesh = new THREE.Mesh(cyl2Geo, glassMat);
+      col2Mesh.position.set(COL2_X, 1.5, 0);
+      equipmentGroup.add(col2Mesh);
+
+      const water2Geo = new THREE.CylinderGeometry(r2Visual * 0.96, r2Visual * 0.96, COL_HEIGHT, 36);
+      const water2Mesh = new THREE.Mesh(water2Geo, waterCoreMat);
+      water2Mesh.position.set(COL2_X, 1.5, 0);
+      equipmentGroup.add(water2Mesh);
+
+      const cone2Geo = new THREE.CylinderGeometry(r2Visual, 0.4, CONE_HEIGHT, 48, 1, true);
+      cone2Mesh = new THREE.Mesh(cone2Geo, glassMat);
+      cone2Mesh.position.set(COL2_X, -4.1, 0);
+      equipmentGroup.add(cone2Mesh);
+
+      // Colector Inferior 2 (Medios)
+      const pot2 = new THREE.Mesh(pot1Geo, flangeMat);
+      pot2.position.set(COL2_X, -5.85, 0);
+      equipmentGroup.add(pot2);
+
+      // Bridas Columna 2
+      const flange2Top = new THREE.Mesh(new THREE.TorusGeometry(r2Visual + 0.08, 0.12, 16, 48), flangeMat);
+      flange2Top.rotation.x = Math.PI / 2;
+      flange2Top.position.set(COL2_X, 6.0, 0);
+      equipmentGroup.add(flange2Top);
+
+      const flange2Bot = flange2Top.clone();
+      flange2Bot.position.set(COL2_X, -3.0, 0);
+      equipmentGroup.add(flange2Bot);
+
+      // --- TUBERÍA DE CONEXIÓN EN SERIE (Rebose Col 1 -> Alimentación Col 2) ---
+      const curve1to2 = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(COL1_X, 6.0, 0),
+        new THREE.Vector3(COL1_X, 7.1, 0),
+        new THREE.Vector3((COL1_X + COL2_X) / 2, 7.1, 0),
+        new THREE.Vector3(COL2_X, 6.5, 0),
+        new THREE.Vector3(COL2_X, -2.2, 0)
+      ]);
+      const pipe1to2Geo = new THREE.TubeGeometry(curve1to2, 40, 0.22, 16, false);
+      const pipe1to2Mesh = new THREE.Mesh(pipe1to2Geo, pipeMat);
+      equipmentGroup.add(pipe1to2Mesh);
+
+      // --- TUBERÍA DE REBOSE FINAL (Col 2 -> Tanque de Finos) ---
+      const curve2toTank = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(COL2_X, 6.0, 0),
+        new THREE.Vector3(COL2_X, 7.0, 0),
+        new THREE.Vector3(TANK_X, 7.0, 0),
+        new THREE.Vector3(TANK_X, 1.5, 0)
+      ]);
+      const pipe2toTankGeo = new THREE.TubeGeometry(curve2toTank, 36, 0.22, 16, false);
+      const pipe2toTankMesh = new THREE.Mesh(pipe2toTankGeo, pipeMat);
+      equipmentGroup.add(pipe2toTankMesh);
+
+      // --- TANQUE COLECTOR DE FINOS (OVERFLOW) ---
+      const tankGeo = new THREE.CylinderGeometry(1.6, 1.6, 4.5, 36, 1, true);
+      const tankMesh = new THREE.Mesh(tankGeo, glassMat);
+      tankMesh.position.set(TANK_X, -0.5, 0);
+      equipmentGroup.add(tankMesh);
+
+      const tankBase = new THREE.Mesh(new THREE.CylinderGeometry(1.65, 1.65, 0.3, 36), flangeMat);
+      tankBase.position.set(TANK_X, -2.8, 0);
+      equipmentGroup.add(tankBase);
+    }
+
+    // =========================================================================
+    // 4. SISTEMA DE PARTÍCULAS 3D CON FÍSICA EN TIEMPO REAL (INSTANCED MESH)
+    // =========================================================================
+    const NUM_PARTICLES = 480;
+    const particleGeo = new THREE.SphereGeometry(1, 14, 14);
+    const particleMat = new THREE.MeshStandardMaterial({
+      roughness: 0.25,
+      metalness: 0.15
+    });
+
+    const instancedParticles = new THREE.InstancedMesh(particleGeo, particleMat, NUM_PARTICLES);
+    instancedParticles.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    scene.add(instancedParticles);
+
+    const colorCoarse = new THREE.Color(0xf59e0b); // Ámbar (Gruesos)
+    const colorMedium = new THREE.Color(0x06b6d4); // Cian (Medios)
+    const colorFine   = new THREE.Color(0xec4899); // Magenta (Finos)
+
+    const particles = [];
+    const dummy = new THREE.Object3D();
+
+    function spawnSingleParticle(p, randomProgress = false) {
+      // Distribución uniforme de tamaños entre 15 µm y 145 µm
+      p.dp_um = 15 + Math.random() * 130;
+      p.stage = 'col1'; // Etapas: 'col1', 'pipe1to2', 'col2', 'pipe2toTank', 'settled1', 'settled2', 'overflowTank'
+      p.pipeT = 0;
+
+      const angle = Math.random() * Math.PI * 2;
+      const radFrac = Math.sqrt(Math.random()) * 0.82;
+      p.rFrac = radFrac;
+      p.angle = angle;
+
+      p.x = COL1_X + Math.cos(angle) * radFrac * r1Visual;
+      p.z = Math.sin(angle) * radFrac * r1Visual;
+      p.y = randomProgress ? (-2.0 + Math.random() * 7.2) : (0.5 + (Math.random() - 0.5) * 1.5);
+      p.holdTimer = 0;
+    }
+
+    function initParticles() {
+      particles.length = 0;
+      for (let i = 0; i < NUM_PARTICLES; i++) {
+        const p = {};
+        spawnSingleParticle(p, true);
+        particles.push(p);
+      }
+    }
+
+    function resetParticles() {
+      for (let i = 0; i < NUM_PARTICLES; i++) {
+        spawnSingleParticle(particles[i], false);
+      }
+    }
+
+    // =========================================================================
+    // 5. LÍNEAS DE FLUJO ASCENDENTE (TRACERS HIDRODINÁMICOS)
+    // =========================================================================
+    const NUM_STREAMLINES = 90;
+    const streamGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.55, 6);
+    const streamMat = new THREE.MeshBasicMaterial({
+      color: 0x7dd3fc,
+      transparent: true,
+      opacity: 0.35
+    });
+    const streamMesh = new THREE.InstancedMesh(streamGeo, streamMat, NUM_STREAMLINES);
+    scene.add(streamMesh);
+
+    const streamlines = [];
+    for (let i = 0; i < NUM_STREAMLINES; i++) {
+      const isCol1 = i < 45;
+      streamlines.push({
+        isCol1,
+        angle: Math.random() * Math.PI * 2,
+        rFrac: Math.sqrt(Math.random()) * 0.85,
+        y: -2.8 + Math.random() * 8.6
+      });
+    }
+
+    // =========================================================================
+    // 6. BUCLE DE SIMULACIÓN FÍSICA A 60 FPS
+    // =========================================================================
+    const VEL_VISUAL_SCALE = 260; // Factor de escala visual m/s -> unidades 3D/s
+
+    function stepSimulation(dt) {
+      const mu = state.mu_mPas * 1e-3;
+      const deltaRho = Math.max(10, state.rho_p - state.rho_f);
+
+      let countCoarse = 0;
+      let countMedium = 0;
+      let countFine = 0;
+
+      for (let i = 0; i < NUM_PARTICLES; i++) {
+        const p = particles[i];
+        const dp_m = p.dp_um * 1e-6;
+
+        // Velocidad terminal de Stokes: vt = g * dp^2 * (rho_p - rho_f) / (18 * mu)
+        const vt = (state.g * dp_m * dp_m * deltaRho) / (18 * mu);
+
+        // Clasificación cromática según el diámetro crítico actual
+        let pColor;
+        if (p.dp_um >= state.dpc1_um) {
+          pColor = colorCoarse;
+          countCoarse++;
+        } else if (p.dp_um >= state.dpc2_um) {
+          pColor = colorMedium;
+          countMedium++;
+        } else {
+          pColor = colorFine;
+          countFine++;
+        }
+        instancedParticles.setColorAt(i, pColor);
+
+        // Perfil radial (Efecto pared parabólico opcional: vf(r) = vf_media * 2 * (1 - (r/R)^2))
+        const profileFactor = state.parabolicProfile ? (1.35 * (1 - 0.75 * p.rFrac * p.rFrac)) : 1.0;
+
+        if (p.stage === 'col1') {
+          const vfLocal = state.vf1 * profileFactor;
+          const vNet = vfLocal - vt; // Positivo = sube al rebose, Negativo = sedimenta
+
+          p.y += vNet * VEL_VISUAL_SCALE * dt;
+          p.angle += 0.35 * dt;
+          const currentR = p.rFrac * r1Visual;
+          p.x = COL1_X + Math.cos(p.angle) * currentR;
+          p.z = Math.sin(p.angle) * currentR;
+
+          if (p.y >= 5.9) {
+            p.stage = 'pipe1to2';
+            p.pipeT = 0;
+          } else if (p.y <= -4.8) {
+            p.stage = 'settled1';
+            p.holdTimer = 0;
+          }
+        } else if (p.stage === 'pipe1to2') {
+          p.pipeT += dt * 0.95;
+          if (p.pipeT < 0.2) {
+            const t = p.pipeT / 0.2;
+            p.x = COL1_X;
+            p.y = 6.0 + t * 1.1;
+            p.z = 0;
+          } else if (p.pipeT < 0.65) {
+            const t = (p.pipeT - 0.2) / 0.45;
+            p.x = COL1_X + t * (COL2_X - COL1_X);
+            p.y = 7.1;
+            p.z = 0;
+          } else if (p.pipeT < 1.0) {
+            const t = (p.pipeT - 0.65) / 0.35;
+            p.x = COL2_X;
+            p.y = 7.1 - t * 8.6;
+            p.z = 0;
+          } else {
+            p.stage = 'col2';
+            p.y = -1.5;
+          }
+        } else if (p.stage === 'col2') {
+          const vfLocal = state.vf2 * profileFactor;
+          const vNet = vfLocal - vt;
+
+          p.y += vNet * VEL_VISUAL_SCALE * dt;
+          p.angle += 0.22 * dt;
+          const currentR = p.rFrac * r2Visual;
+          p.x = COL2_X + Math.cos(p.angle) * currentR;
+          p.z = Math.sin(p.angle) * currentR;
+
+          if (p.y >= 5.9) {
+            p.stage = 'pipe2toTank';
+            p.pipeT = 0;
+          } else if (p.y <= -4.8) {
+            p.stage = 'settled2';
+            p.holdTimer = 0;
+          }
+        } else if (p.stage === 'pipe2toTank') {
+          p.pipeT += dt * 1.1;
+          if (p.pipeT < 0.25) {
+            const t = p.pipeT / 0.25;
+            p.x = COL2_X;
+            p.y = 6.0 + t * 1.0;
+            p.z = 0;
+          } else if (p.pipeT < 0.7) {
+            const t = (p.pipeT - 0.25) / 0.45;
+            p.x = COL2_X + t * (TANK_X - COL2_X);
+            p.y = 7.0;
+            p.z = 0;
+          } else if (p.pipeT < 1.0) {
+            const t = (p.pipeT - 0.7) / 0.3;
+            p.x = TANK_X;
+            p.y = 7.0 - t * 6.5;
+            p.z = 0;
+          } else {
+            p.stage = 'overflowTank';
+            p.holdTimer = 0;
+          }
+        } else if (p.stage === 'settled1') {
+          p.holdTimer += dt;
+          p.y = -5.4 - (p.holdTimer * 0.25);
+          p.x = COL1_X + Math.cos(p.angle) * 0.35;
+          p.z = Math.sin(p.angle) * 0.35;
+          if (p.holdTimer > 1.8) spawnSingleParticle(p, false);
+        } else if (p.stage === 'settled2') {
+          p.holdTimer += dt;
+          p.y = -5.4 - (p.holdTimer * 0.25);
+          p.x = COL2_X + Math.cos(p.angle) * 0.38;
+          p.z = Math.sin(p.angle) * 0.38;
+          if (p.holdTimer > 1.8) spawnSingleParticle(p, false);
+        } else if (p.stage === 'overflowTank') {
+          p.holdTimer += dt;
+          p.y = 0.2 - p.holdTimer * 1.1;
+          p.angle += 0.5 * dt;
+          p.x = TANK_X + Math.cos(p.angle) * (p.rFrac * 1.2);
+          p.z = Math.sin(p.angle) * (p.rFrac * 1.2);
+          if (p.holdTimer > 2.0) spawnSingleParticle(p, false);
+        }
+
+        // Escala visual de la esfera según su diámetro en micrómetros
+        const radius3D = 0.045 + (p.dp_um / 150) * 0.115;
+        dummy.position.set(p.x, p.y, p.z);
+        dummy.scale.set(radius3D, radius3D, radius3D);
+        dummy.updateMatrix();
+        instancedParticles.setMatrixAt(i, dummy.matrix);
+      }
+
+      instancedParticles.instanceMatrix.needsUpdate = true;
+      if (instancedParticles.instanceColor) instancedParticles.instanceColor.needsUpdate = true;
+
+      // Actualizar porcentajes en la interfaz
+      document.getElementById('count-coarse').textContent = `${Math.round((countCoarse / NUM_PARTICLES) * 100)}%`;
+      document.getElementById('count-medium').textContent = `${Math.round((countMedium / NUM_PARTICLES) * 100)}%`;
+      document.getElementById('count-fine').textContent   = `${Math.round((countFine / NUM_PARTICLES) * 100)}%`;
+
+      // Actualizar líneas de corriente ascendente
+      streamMesh.visible = state.showStreamlines;
+      if (state.showStreamlines) {
+        for (let i = 0; i < NUM_STREAMLINES; i++) {
+          const s = streamlines[i];
+          const vf = s.isCol1 ? state.vf1 : state.vf2;
+          const colX = s.isCol1 ? COL1_X : COL2_X;
+          const colR = s.isCol1 ? r1Visual : r2Visual;
+
+          s.y += vf * VEL_VISUAL_SCALE * 1.3 * dt;
+          if (s.y > 5.8) s.y = -2.8;
+
+          dummy.position.set(
+            colX + Math.cos(s.angle) * s.rFrac * colR,
+            s.y,
+            Math.sin(s.angle) * s.rFrac * colR
+          );
+          dummy.scale.set(1, 1, 1);
+          dummy.updateMatrix();
+          streamMesh.setMatrixAt(i, dummy.matrix);
+        }
+        streamMesh.instanceMatrix.needsUpdate = true;
+      }
+    }
+
+    // =========================================================================
+    // 7. CONTROLES DE CÁMARA Y ETIQUETAS 3D PROYECTADAS
+    // =========================================================================
+    let desiredCamPos = new THREE.Vector3(0, 3.5, 22);
+    let desiredTarget = new THREE.Vector3(0, 1.0, 0);
+    let cameraAnimating = false;
+
+    function setCameraView(view, btnEl) {
+      document.querySelectorAll('.camera-controls .btn').forEach(b => b.classList.remove('active'));
+      if (btnEl) btnEl.classList.add('active');
+
+      if (view === 'overview') {
+        desiredCamPos.set(0, 3.5, 22);
+        desiredTarget.set(1.0, 1.0, 0);
+      } else if (view === 'col1') {
+        desiredCamPos.set(COL1_X, 1.8, 10.5);
+        desiredTarget.set(COL1_X, 1.2, 0);
+      } else if (view === 'col2') {
+        desiredCamPos.set(COL2_X, 1.8, 12.5);
+        desiredTarget.set(COL2_X, 1.2, 0);
+      } else if (view === 'top') {
+        desiredCamPos.set(1.5, 23.0, 0.1);
+        desiredTarget.set(1.5, 0, 0);
+      }
+      cameraAnimating = true;
+    }
+
+    controls.addEventListener('start', () => { cameraAnimating = false; });
+
+    function updateFloatingLabels() {
+      const labels = [
+        { id: 'label-col1', pos: new THREE.Vector3(COL1_X, -7.1, 0) },
+        { id: 'label-col2', pos: new THREE.Vector3(COL2_X, -7.1, 0) },
+        { id: 'label-overflow', pos: new THREE.Vector3(TANK_X, -3.7, 0) }
+      ];
+
+      labels.forEach(item => {
+        const el = document.getElementById(item.id);
+        const v = item.pos.clone().project(camera);
+        if (v.z > 1) {
+          el.style.display = 'none';
+        } else {
+          const x = (v.x * 0.5 + 0.5) * window.innerWidth;
+          const y = (-(v.y * 0.5) + 0.5) * window.innerHeight;
+          el.style.display = 'block';
+          el.style.left = `${x}px`;
+          el.style.top = `${y}px`;
+        }
+      });
+    }
+
+    // =========================================================================
+    // 8. EVENTOS DE INTERFAZ Y PRESETS DE EXPOSICIÓN
+    // =========================================================================
+    document.getElementById('slider-flow').addEventListener('input', e => {
+      state.Q_Lmin = parseFloat(e.target.value);
+      updatePhysicsModel();
+    });
+
+    document.getElementById('slider-density').addEventListener('input', e => {
+      state.rho_p = parseFloat(e.target.value);
+      document.querySelectorAll('#btn-quartz, #btn-barite, #btn-galena').forEach(b => b.classList.remove('active'));
+      updatePhysicsModel();
+    });
+
+    document.getElementById('slider-visc').addEventListener('input', e => {
+      state.mu_mPas = parseFloat(e.target.value);
+      updatePhysicsModel();
+    });
+
+    document.getElementById('slider-d1').addEventListener('input', e => {
+      state.D1_cm = parseFloat(e.target.value);
+      updatePhysicsModel();
+      buildElutriatorGeometry();
+    });
+
+    document.getElementById('slider-d2').addEventListener('input', e => {
+      state.D2_cm = parseFloat(e.target.value);
+      updatePhysicsModel();
+      buildElutriatorGeometry();
+    });
+
+    document.getElementById('chk-parabolic').addEventListener('change', e => {
+      state.parabolicProfile = e.target.checked;
+    });
+
+    document.getElementById('chk-streamlines').addEventListener('change', e => {
+      state.showStreamlines = e.target.checked;
+    });
+
+    function setMineral(rho, btnId) {
+      state.rho_p = rho;
+      document.getElementById('slider-density').value = rho;
+      document.querySelectorAll('#btn-quartz, #btn-barite, #btn-galena').forEach(b => b.classList.remove('active'));
+      document.getElementById(btnId).classList.add('active');
+      updatePhysicsModel();
+    }
+
+    function setPresetCase() {
+      state.Q_Lmin = 1.50;
+      state.D1_cm = 5.95;
+      state.D2_cm = 11.90;
+      document.getElementById('slider-flow').value = 1.50;
+      document.getElementById('slider-d1').value = 5.95;
+      document.getElementById('slider-d2').value = 11.90;
+      updatePhysicsModel();
+      buildElutriatorGeometry();
+    }
+
+    function setHighFlowCase() {
+      state.Q_Lmin = 3.00;
+      document.getElementById('slider-flow').value = 3.00;
+      updatePhysicsModel();
+    }
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Inicializar aplicación
+    updatePhysicsModel();
+    buildElutriatorGeometry();
+    initParticles();
+
+    let lastTime = performance.now();
+    function animate(now) {
+      requestAnimationFrame(animate);
+      const dt = Math.min((now - lastTime) / 1000, 0.05);
+      lastTime = now;
+
+      if (cameraAnimating) {
+        camera.position.lerp(desiredCamPos, 0.08);
+        controls.target.lerp(desiredTarget, 0.08);
+        if (camera.position.distanceTo(desiredCamPos) < 0.05) cameraAnimating = false;
+      }
+
+      controls.update();
+      stepSimulation(dt);
+      updateFloatingLabels();
+      renderer.render(scene, camera);
+    }
+    requestAnimationFrame(animate);
+  </script>
+</body>
+</html>
