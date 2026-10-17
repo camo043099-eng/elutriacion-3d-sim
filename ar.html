@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Realidad Aumentada (WebAR) · Elutriador 3D sobre Marcador Hiro</title>
+
+  <!-- A-Frame + AR.js para seguimiento de marcador Hiro en navegador móvil -->
+  <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
+  <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
+
+  <!-- Motor físico compartido del repositorio (con respaldo automático integrado) -->
+  <script src="js/sim.js"></script>
+  <script>
+    if (typeof window.ElutriationSim === 'undefined') {
+      window.ElutriationSim = (function () {
+        const LAYOUT = {
+          COL_X: [-5.0, 3.2], TANK_X: 10.2, CM_TO_UNITS: 0.40,
+          COL_TOP: 6.0, COL_BOTTOM: -3.0, REDUCER_TOP: 6.7, CONE_BOTTOM: -5.2,
+          CONE_OUTLET_R: [0.35, 0.40], POT_TOP: -5.2, POT_BOTTOM: -6.5, POT_FLOOR: -6.38,
+          POT_R: 0.65, TANK_R: 1.6, TANK_TOP: 1.75, TANK_BOTTOM: -2.75, TANK_FLOOR: -2.62,
+          PIPE_R: 0.26, PIPE_Y: 7.4, INLET_Y: -2.5, DEAD_ZONE_Y: -2.75, FEED_Y: 1.0,
+          HOPPER_BOTTOM: 2.2, HOPPER_TOP: 3.1, HOPPER_R: 0.75, OVERFLOW_END_Y: 1.4
+        };
+        class SimplePath {
+          constructor(pts) {
+            this.pts = pts; this.seg = []; this.length = 0;
+            for (let i = 0; i < pts.length - 1; i++) {
+              const l = Math.hypot(pts[i+1][0]-pts[i][0], pts[i+1][1]-pts[i][1], pts[i+1][2]-pts[i][2]);
+              this.seg.push(l); this.length += l;
+            }
+          }
+          pointAt(dist) {
+            let d = Math.max(0, Math.min(this.length, dist));
+            for (let i = 0; i < this.seg.length; i++) {
+              if (d <= this.seg[i] || i === this.seg.length - 1) {
+                const t = this.seg[i] > 0 ? d / this.seg[i] : 0;
+                const a = this.pts[i], b = this.pts[i+1];
+                return [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t];
+              }
+              d -= this.seg[i];
+            }
+            return this.pts[this.pts.length - 1];
+          }
+        }
+        class Simulation {
+          constructor(opts) {
+            this.N = (opts && opts.count) || 260;
+            this.state = { Q_Lmin: 1.5, rho_p: 2650, rho_f: 1000, mu_mPas: 1.0, D1_cm: 5.95, D2_cm: 11.9, g: 9.81, parabolic: false, dispersion: false, reCorrection: false };
+            this.model = { Q: 0, mu: 0.001, D: [0.0595, 0.119], vf: [0, 0], dpc_um: [100, 50], re: [0, 0], theory: [0.33, 0.33, 0.34] };
+            this.geo = { R: [1.19, 2.38], cx: [-5.0, 3.2], feedX: -7.8, paths: {} };
+            this.particles = []; this.tracers = [];
+            this.updateGeometry(); this.updateModel();
+            for (let i = 0; i < this.N; i++) { const p = {}; this.spawn(p, true); this.particles.push(p); }
+            for (let i = 0; i < 60; i++) { this.tracers.push({ col: i < 30 ? 0 : 1, ang: Math.random()*Math.PI*2, rFrac: Math.sqrt(Math.random())*0.85, y: -2.5+Math.random()*8.2, x:0, z:0 }); }
+          }
+          vt(dp_m) {
+            const s = this.state, mu = s.mu_mPas * 1e-3, dRho = Math.abs(s.rho_p - s.rho_f) || 10;
+            const sign = s.rho_p >= s.rho_f ? 1 : -1;
+            const vt0 = (s.g * dp_m * dp_m * dRho) / (18 * mu);
+            if (!s.reCorrection) return sign * vt0;
+            let v = vt0;
+            for (let k = 0; k < 6; k++) { const re = (s.rho_f * v * dp_m) / mu; v = vt0 / (1 + 0.15 * Math.pow(Math.max(1e-6, re), 0.687)); }
+            return sign * v;
+          }
+          updateGeometry() {
+            const r1 = (this.state.D1_cm / 2) * 0.4, r2 = (this.state.D2_cm / 2) * 0.4;
+            const dcX = LAYOUT.COL_X[1] - r2 - 0.7;
+            this.geo.R = [r1, r2]; this.geo.feedX = LAYOUT.COL_X[0] - r1 - 1.4;
+            this.geo.paths = {
+              feed: new SimplePath([[this.geo.feedX, LAYOUT.HOPPER_BOTTOM, 0], [this.geo.feedX, LAYOUT.FEED_Y, 0], [LAYOUT.COL_X[0] - 0.35*r1, LAYOUT.FEED_Y, 0]]),
+              link: new SimplePath([[LAYOUT.COL_X[0], LAYOUT.REDUCER_TOP, 0], [LAYOUT.COL_X[0], LAYOUT.PIPE_Y, 0], [dcX, LAYOUT.PIPE_Y, 0], [dcX, LAYOUT.INLET_Y, 0], [LAYOUT.COL_X[1] - 0.4*r2, LAYOUT.INLET_Y, 0]]),
+              overflow: new SimplePath([[LAYOUT.COL_X[1], LAYOUT.REDUCER_TOP, 0], [LAYOUT.COL_X[1], LAYOUT.PIPE_Y, 0], [LAYOUT.TANK_X, LAYOUT.PIPE_Y, 0], [LAYOUT.TANK_X, LAYOUT.OVERFLOW_END_Y, 0]])
+            };
+          }
+          updateModel() {
+            const s = this.state, Q = (s.Q_Lmin / 1000) / 60, mu = s.mu_mPas * 1e-3;
+            const D1 = s.D1_cm / 100, D2 = s.D2_cm / 100;
+            const vf1 = Q / (Math.PI * Math.pow(D1/2, 2)), vf2 = Q / (Math.PI * Math.pow(D2/2, 2));
+            const dRho = Math.max(10, Math.abs(s.rho_p - s.rho_f));
+            const dpc1 = Math.sqrt((18 * mu * vf1) / (s.g * dRho)) * 1e6;
+            const dpc2 = Math.sqrt((18 * mu * vf2) / (s.g * dRho)) * 1e6;
+            const re1 = (s.rho_f * vf1 * dpc1 * 1e-6) / mu, re2 = (s.rho_f * vf2 * dpc2 * 1e-6) / mu;
+            this.model = { Q, mu, D: [D1, D2], vf: [vf1, vf2], dpc_um: [dpc1, dpc2], re: [re1, re2], theory: [0.33, 0.33, 0.34] };
+          }
+          setParams(p) {
+            const d1 = this.state.D1_cm, d2 = this.state.D2_cm;
+            Object.assign(this.state, p);
+            const ch = (d1 !== this.state.D1_cm || d2 !== this.state.D2_cm);
+            if (ch) this.updateGeometry();
+            this.updateModel();
+            return ch;
+          }
+          spawn(p, init) {
+            p.d = 15 + Math.random() * 130; p.ang = Math.random() * Math.PI * 2; p.rFrac = Math.sqrt(Math.random()) * 0.82;
+            p.stage = init ? (Math.random() < 0.5 ? 'col1' : 'col2') : 'col1'; p.dist = 0; p.hold = 0;
+            const c = p.stage === 'col2' ? 1 : 0;
+            p.y = init ? (-2.2 + Math.random() * 7.5) : (0.8 + (Math.random() - 0.5) * 1.2);
+            p.x = this.geo.cx[c] + Math.cos(p.ang) * p.rFrac * this.geo.R[c];
+            p.z = Math.sin(p.ang) * p.rFrac * this.geo.R[c];
+            p.cls = this.state.rho_p <= this.state.rho_f ? 2 : (p.d >= this.model.dpc_um[0] ? 0 : (p.d >= this.model.dpc_um[1] ? 1 : 2));
+            p.rad = 0.05 + (p.d / 150) * 0.11;
+          }
+          resetPulse() { for (const p of this.particles) this.spawn(p, false); }
+          step(dt) {
+            const S = 260;
+            for (const p of this.particles) {
+              p.cls = this.state.rho_p <= this.state.rho_f ? 2 : (p.d >= this.model.dpc_um[0] ? 0 : (p.d >= this.model.dpc_um[1] ? 1 : 2));
+              const vt = this.vt(p.d * 1e-6);
+              const prof = this.state.parabolic ? (2.0 * (1 - p.rFrac * p.rFrac)) : 1.0;
+              if (p.stage === 'col1' || p.stage === 'col2') {
+                const c = p.stage === 'col1' ? 0 : 1;
+                p.y += (this.model.vf[c] * prof - vt) * S * dt;
+                p.ang += 0.3 * dt;
+                const R = this.geo.R[c] * p.rFrac;
+                p.x = this.geo.cx[c] + Math.cos(p.ang) * R; p.z = Math.sin(p.ang) * R;
+                if (p.y >= LAYOUT.REDUCER_TOP) { p.stage = c === 0 ? 'link' : 'overflow'; p.dist = 0; }
+                else if (p.y <= LAYOUT.POT_TOP) { p.stage = 'pot'; p.hold = 0; }
+              } else if (p.stage === 'link' || p.stage === 'overflow') {
+                const path = this.geo.paths[p.stage]; p.dist += dt * 6.5;
+                const pt = path.pointAt(p.dist); p.x = pt[0]; p.y = pt[1]; p.z = pt[2];
+                if (p.dist >= path.length) {
+                  if (p.stage === 'link') { p.stage = 'col2'; p.y = -2.0; }
+                  else { p.stage = 'pot'; p.hold = 0; }
+                }
+              } else { p.hold += dt; p.y -= dt * 0.25; if (p.hold > 1.5) this.spawn(p, false); }
+            }
+            for (const t of this.tracers) {
+              const c = t.col; t.y += this.model.vf[c] * S * 1.2 * dt;
+              if (t.y > LAYOUT.COL_TOP) t.y = LAYOUT.INLET_Y;
+              t.x = this.geo.cx[c] + Math.cos(t.ang) * t.rFrac * this.geo.R[c];
+              t.z = Math.sin(t.ang) * t.rFrac * this.geo.R[c];
+            }
+          }
+        }
+        return { LAYOUT, Simulation };
+      })();
+    }
+  </script>
+
+  <style>
+    :root {
+      --panel-bg: rgba(15, 23, 42, 0.86);
+      --border-glow: rgba(56, 189, 248, 0.38);
+      --accent: #38bdf8;
+      --coarse: #f59e0b;
+      --medium: #06b6d4;
+      --fine: #ec4899;
+      --ok: #4ade80;
+      --warn: #fbbf24;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+
+    * {
+      box-sizing: border-box;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #000;
+      color: var(--text-main);
+    }
+
+    .msym {
+      font-family: 'Cambria Math', 'Times New Roman', Georgia, serif;
+      font-style: italic;
+      font-weight: 600;
+    }
+    .msym sub, .msym sup {
+      font-style: normal;
+      font-size: 0.76em;
+    }
+
+    /* Capa de interfaz superpuesta sobre el video AR */
+    .ar-hud {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 999;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 12px;
+    }
+
+    .hud-top, .hud-bottom {
+      pointer-events: auto;
+      background: var(--panel-bg);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--border-glow);
+      border-radius: 12px;
+      padding: 10px 14px;
+      box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6);
+    }
+
+    .top-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(251, 191, 36, 0.18);
+      border: 1px solid var(--warn);
+      color: var(--warn);
+    }
+
+    .status-pill.found {
+      background: rgba(74, 222, 128, 0.18);
+      border-color: var(--ok);
+      color: var(--ok);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 8px currentColor;
+    }
+
+    .kpi-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .kpi-mini {
+      background: rgba(30, 41, 59, 0.75);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 8px;
+      padding: 6px 8px;
+      text-align: center;
+    }
+
+    .kpi-mini .lbl {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+    }
+
+    .kpi-mini .val {
+      font-size: 0.86rem;
+      font-weight: 700;
+      margin-top: 1px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Retícula guía cuando no se detecta el marcador */
+    .reticle-guide {
+      align-self: center;
+      width: 210px;
+      height: 210px;
+      border: 2px dashed rgba(56, 189, 248, 0.55);
+      border-radius: 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 16px;
+      background: rgba(15, 23, 42, 0.35);
+      color: #e2e8f0;
+      font-size: 0.78rem;
+      line-height: 1.4;
+      transition: opacity 0.25s ease;
+    }
+
+    .reticle-guide.hidden {
+      opacity: 0;
+    }
+
+    .reticle-guide strong {
+      color: var(--accent);
+      font-size: 0.9rem;
+      margin-bottom: 4px;
+    }
+
+    /* Controles inferiores */
+    .hud-bottom {
+      max-width: 560px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    .drawer-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .drawer-title {
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    .control-row {
+      margin-bottom: 9px;
+    }
+
+    .control-lbl {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.76rem;
+      margin-bottom: 3px;
+    }
+
+    .control-lbl b {
+      color: var(--accent);
+      font-variant-numeric: tabular-nums;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+      height: 6px;
+      cursor: pointer;
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 5px;
+    }
+
+    .btn {
+      flex: 1;
+      background: rgba(30, 41, 59, 0.92);
+      color: var(--text-main);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      padding: 6px 9px;
+      border-radius: 7px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: center;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .btn.active, .btn:hover {
+      background: rgba(56, 189, 248, 0.24);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    .legend-pills {
+      display: flex;
+      justify-content: space-around;
+      gap: 6px;
+      font-size: 0.68rem;
+      color: #cbd5e1;
+      padding-top: 6px;
+      border-top: 1px solid rgba(148, 163, 184, 0.18);
+      margin-top: 6px;
+    }
+
+    .dot {
+      display: inline-block;
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      margin-right: 4px;
+      vertical-align: middle;
+    }
+
+    body.hud-minimized #drawer-content {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- =========================================================================
+       INTERFAZ TÁCTIL SUPERPUESTA (HUD) PARA CONTROLAR VARIABLES EN VIVO
+       ========================================================================= -->
+  <div class="ar-hud">
+    <!-- Barra Superior: Estado del Marcador Hiro y Telemetría -->
+    <div class="hud-top">
+      <div class="top-row">
+        <div class="status-pill" id="marker-status">
+          <span class="status-dot"></span>
+          <span id="marker-status-text">Apunta la cámara al marcador HIRO</span>
+        </div>
+        <div style="display: flex; gap: 6px;">
+          <button class="btn" id="btn-orientation">📐 Modo: Mesa</button>
+          <a href="index.html" class="btn">⬅️ Vista 3D</a>
+        </div>
+      </div>
+
+      <div class="kpi-strip">
+        <div class="kpi-mini">
+          <div class="lbl">Col. 1 (<span class="msym">v<sub>f1</sub></span>)</div>
+          <div class="val" id="ar-vf1" style="color: #fbbf24;">8.99 mm/s</div>
+        </div>
+        <div class="kpi-mini">
+          <div class="lbl">Corte 1 (<span class="msym">d<sub>pc1</sub></span>)</div>
+          <div class="val" id="ar-dpc1" style="color: #fbbf24;">100.0 µm</div>
+        </div>
+        <div class="kpi-mini">
+          <div class="lbl">Col. 2 (<span class="msym">v<sub>f2</sub></span>)</div>
+          <div class="val" id="ar-vf2" style="color: #22d3ee;">2.25 mm/s</div>
+        </div>
+        <div class="kpi-mini">
+          <div class="lbl">Corte 2 (<span class="msym">d<sub>pc2</sub></span>)</div>
+          <div class="val" id="ar-dpc2" style="color: #22d3ee;">50.0 µm</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Retícula central de ayuda mientras busca el marcador Hiro -->
+    <div class="reticle-guide" id="reticle-guide">
+      <strong>Marcador HIRO</strong>
+      Encuadra tu marcador físico dentro de la cámara para desplegar el elutriador 3D en tiempo real.
+    </div>
+
+    <!-- Panel Inferior: Modificación de Variables en Tiempo Real -->
+    <div class="hud-bottom">
+      <div class="drawer-header">
+        <span class="drawer-title">Control Hidrodinámico en Realidad Aumentada</span>
+        <button class="btn" id="btn-toggle-hud" style="flex: 0; padding: 4px 8px;">Minimizar</button>
+      </div>
+
+      <div id="drawer-content">
+        <div class="control-row">
+          <div class="control-lbl">
+            <span>Caudal de agua (<span class="msym">Q</span>)</span>
+            <b id="lbl-q">1.50 L/min</b>
+          </div>
+          <input type="range" id="ar-slider-q" min="0.50" max="4.00" step="0.05" value="1.50" />
+        </div>
+
+        <div class="control-row">
+          <div class="control-lbl">
+            <span>Densidad del sólido (<span class="msym">&rho;<sub>p</sub></span>)</span>
+            <b id="lbl-rho">2650 kg/m³</b>
+          </div>
+          <input type="range" id="ar-slider-rho" min="500" max="7500" step="50" value="2650" />
+          <div class="btn-row">
+            <button class="btn rho-btn" data-rho="500">Biomasa (500)</button>
+            <button class="btn rho-btn active" data-rho="2650">Cuarzo (2650)</button>
+            <button class="btn rho-btn" data-rho="4500">Barita (4500)</button>
+            <button class="btn rho-btn" data-rho="7500">Galena (7500)</button>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <div class="control-lbl">
+            <span>Tamaño del Holograma AR</span>
+            <b id="lbl-scale">100%</b>
+          </div>
+          <input type="range" id="ar-slider-scale" min="0.05" max="0.18" step="0.005" value="0.095" />
+        </div>
+
+        <div class="btn-row">
+          <button class="btn" id="btn-ar-parabolic">Efecto Pared: OFF</button>
+          <button class="btn" id="btn-ar-pulse">🔄 Reiniciar Pulso</button>
+        </div>
+
+        <div class="legend-pills">
+          <span><i class="dot" style="background: var(--coarse);"></i>Gruesos (&gt;<span class="msym">d<sub>pc1</sub></span>)</span>
+          <span><i class="dot" style="background: var(--medium);"></i>Medios (<span class="msym">d<sub>pc2</sub>–d<sub>pc1</sub></span>)</span>
+          <span><i class="dot" style="background: var(--fine);"></i>Finos (&lt;<span class="msym">d<sub>pc2</sub></span>)</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       COMPONENTE A-FRAME QUE CONSTRUYE Y ANIMA EL ELUTRIADOR 3D SOBRE HIRO
+       ========================================================================= -->
+  <script>
+    (function () {
+      'use strict';
+
+      const SIM = window.ElutriationSim;
+      const L = SIM.LAYOUT;
+      const sim = new SIM.Simulation({ count: 280, tracers: 60 });
+      const $ = id => document.getElementById(id);
+
+      let standOnTableMode = true; // true = perpendicular al papel (mesa), false = acostado paralelo al papel (pared)
+      let currentScale = 0.095;
+
+      function updateTelemetryHUD() {
+        const s = sim.state, m = sim.model;
+        $('lbl-q').textContent = `${s.Q_Lmin.toFixed(2)} L/min`;
+        $('lbl-rho').textContent = `${s.rho_p} kg/m³`;
+        $('ar-vf1').textContent = `${(m.vf[0] * 1000).toFixed(2)} mm/s`;
+        $('ar-dpc1').textContent = `${m.dpc_um[0].toFixed(1)} µm`;
+        $('ar-vf2').textContent = `${(m.vf[1] * 1000).toFixed(2)} mm/s`;
+        $('ar-dpc2').textContent = `${m.dpc_um[1].toFixed(1)} µm`;
+
+        document.querySelectorAll('.rho-btn').forEach(b => {
+          b.classList.toggle('active', Number(b.dataset.rho) === s.rho_p);
+        });
+      }
+
+      // Registrar componente 3D en A-Frame
+      AFRAME.registerComponent('elutriator-ar-rig', {
+        init: function () {
+          const THREE = AFRAME.THREE;
+          this.rootGroup = new THREE.Group();
+          this.el.object3D.add(this.rootGroup);
+
+          // Iluminación propia del modelo sobre el marcador
+          const amb = new THREE.AmbientLight(0xffffff, 0.95);
+          const dir = new THREE.DirectionalLight(0xe0f2fe, 1.15);
+          dir.position.set(10, 20, 15);
+          this.rootGroup.add(amb);
+          this.rootGroup.add(dir);
+
+          this.equipGroup = new THREE.Group();
+          this.rootGroup.add(this.equipGroup);
+
+          this.buildMaterials();
+          this.buildEquipment();
+          this.buildInstancedParticles();
+          this.syncTransform();
+        },
+
+        buildMaterials: function () {
+          const THREE = AFRAME.THREE;
+          this.glassMat = new THREE.MeshStandardMaterial({
+            color: 0xbae6fd,
+            transparent: true,
+            opacity: 0.34,
+            roughness: 0.15,
+            metalness: 0.1,
+            side: THREE.DoubleSide,
+            depthWrite: false
+          });
+          this.waterMat = new THREE.MeshBasicMaterial({
+            color: 0x0284c7,
+            transparent: true,
+            opacity: 0.14,
+            depthWrite: false
+          });
+          this.metalMat = new THREE.MeshStandardMaterial({
+            color: 0x475569,
+            metalness: 0.75,
+            roughness: 0.3,
+            side: THREE.DoubleSide
+          });
+          this.pipeMat = new THREE.MeshStandardMaterial({
+            color: 0x94a3b8,
+            transparent: true,
+            opacity: 0.42,
+            roughness: 0.25,
+            side: THREE.DoubleSide,
+            depthWrite: false
+          });
+        },
+
+        buildEquipment: function () {
+          const THREE = AFRAME.THREE;
+          const g = sim.geo;
+          const colH = L.COL_TOP - L.COL_BOTTOM;
+          const coneH = L.COL_BOTTOM - L.CONE_BOTTOM;
+          const redH = L.REDUCER_TOP - L.COL_TOP;
+          const potH = L.POT_TOP - L.POT_BOTTOM;
+
+          const addMesh = (geo, mat, x, y, z) => {
+            const m = new THREE.Mesh(geo, mat);
+            m.position.set(x || 0, y || 0, z || 0);
+            this.equipGroup.add(m);
+            return m;
+          };
+
+          const addRing = (radius, x, y) => {
+            const r = addMesh(new THREE.TorusGeometry(radius + 0.06, 0.09, 10, 36), this.metalMat, x, y, 0);
+            r.rotation.x = Math.PI / 2;
+          };
+
+          // Columnas 1 y 2
+          for (let c = 0; c < 2; c++) {
+            const R = g.R[c], x = g.cx[c], Rb = L.CONE_OUTLET_R[c];
+            addMesh(new THREE.CylinderGeometry(R, R, colH, 36, 1, true), this.glassMat, x, (L.COL_TOP + L.COL_BOTTOM) / 2);
+            addMesh(new THREE.CylinderGeometry(R * 0.96, R * 0.96, colH, 28), this.waterMat, x, (L.COL_TOP + L.COL_BOTTOM) / 2);
+            addMesh(new THREE.CylinderGeometry(R, Rb, coneH, 36, 1, true), this.glassMat, x, (L.COL_BOTTOM + L.CONE_BOTTOM) / 2);
+            addMesh(new THREE.CylinderGeometry(L.PIPE_R, R, redH, 36, 1, true), this.glassMat, x, (L.COL_TOP + L.REDUCER_TOP) / 2);
+            addRing(R, x, L.COL_TOP);
+            addRing(R, x, L.COL_BOTTOM);
+            addMesh(new THREE.CylinderGeometry(L.POT_R, L.POT_R, potH, 28, 1, true), this.glassMat, x, (L.POT_TOP + L.POT_BOTTOM) / 2);
+            addMesh(new THREE.CylinderGeometry(L.POT_R + 0.05, L.POT_R + 0.05, 0.22, 28), this.metalMat, x, L.POT_BOTTOM);
+          }
+
+          // Tuberías de interconexión
+          class PathCurve extends THREE.Curve {
+            constructor(path) { super(); this.path = path; }
+            getPoint(t, target) {
+              const p = this.path.pointAt(t * this.path.length);
+              return (target || new THREE.Vector3()).set(p[0], p[1], p[2]);
+            }
+          }
+
+          Object.values(g.paths).forEach(path => {
+            const tubeGeo = new THREE.TubeGeometry(new PathCurve(path), 32, L.PIPE_R, 14, false);
+            addMesh(tubeGeo, this.pipeMat);
+          });
+
+          // Tolva de alimentación
+          addMesh(new THREE.CylinderGeometry(L.HOPPER_R, L.PIPE_R, L.HOPPER_TOP - L.HOPPER_BOTTOM, 28, 1, true),
+            this.glassMat, g.feedX, (L.HOPPER_TOP + L.HOPPER_BOTTOM) / 2);
+
+          // Tanque de rebose final
+          const tankH = L.TANK_TOP - L.TANK_BOTTOM;
+          addMesh(new THREE.CylinderGeometry(L.TANK_R, L.TANK_R, tankH, 36, 1, true), this.glassMat, L.TANK_X, (L.TANK_TOP + L.TANK_BOTTOM) / 2);
+          addMesh(new THREE.CylinderGeometry(L.TANK_R * 0.96, L.TANK_R * 0.96, tankH * 0.85, 28), this.waterMat, L.TANK_X, (L.TANK_TOP + L.TANK_BOTTOM) / 2 - 0.2);
+          addMesh(new THREE.CylinderGeometry(L.TANK_R + 0.05, L.TANK_R + 0.05, 0.25, 36), this.metalMat, L.TANK_X, L.TANK_BOTTOM);
+        },
+
+        buildInstancedParticles: function () {
+          const THREE = AFRAME.THREE;
+          const N = sim.particles.length;
+          const pMat = new THREE.MeshStandardMaterial({ roughness: 0.25, metalness: 0.1 });
+          this.pMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 10, 10), pMat, N);
+          this.pMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+          this.pMesh.frustumCulled = false;
+          this.rootGroup.add(this.pMesh);
+
+          const T = sim.tracers.length;
+          const tMat = new THREE.MeshBasicMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0.45 });
+          this.tMesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.03, 0.03, 0.55, 6), tMat, T);
+          this.tMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+          this.tMesh.frustumCulled = false;
+          this.rootGroup.add(this.tMesh);
+
+          this.colors = [
+            new THREE.Color(0xf59e0b),
+            new THREE.Color(0x06b6d4),
+            new THREE.Color(0xec4899)
+          ];
+          this.dummy = new THREE.Object3D();
+        },
+
+        syncTransform: function () {
+          this.rootGroup.scale.setScalar(currentScale);
+          if (standOnTableMode) {
+            // El marcador está plano sobre la mesa: el elutriador se levanta sobre el eje Y
+            this.rootGroup.rotation.set(0, 0, 0);
+            this.rootGroup.position.set(-0.12, 6.6 * currentScale, 0);
+          } else {
+            // El marcador está vertical en pared/pantalla: rotamos -90° en X
+            this.rootGroup.rotation.set(-Math.PI / 2, 0, 0);
+            this.rootGroup.position.set(-0.12, 0.15, -6.6 * currentScale);
+          }
+        },
+
+        tick: function (time, timeDelta) {
+          const dt = Math.min((timeDelta || 16) / 1000, 0.05);
+          sim.step(dt);
+
+          const N = sim.particles.length;
+          const dummy = this.dummy;
+          for (let i = 0; i < N; i++) {
+            const p = sim.particles[i];
+            dummy.position.set(p.x, p.y, p.z);
+            dummy.scale.setScalar(p.rad * 1.25); // Ligeramente más visibles en cámara móvil
+            dummy.updateMatrix();
+            this.pMesh.setMatrixAt(i, dummy.matrix);
+            this.pMesh.setColorAt(i, this.colors[p.cls]);
+          }
+          this.pMesh.instanceMatrix.needsUpdate = true;
+          if (this.pMesh.instanceColor) this.pMesh.instanceColor.needsUpdate = true;
+
+          const T = sim.tracers.length;
+          dummy.scale.setScalar(1);
+          for (let i = 0; i < T; i++) {
+            const tr = sim.tracers[i];
+            dummy.position.set(tr.x, tr.y, tr.z);
+            dummy.updateMatrix();
+            this.tMesh.setMatrixAt(i, dummy.matrix);
+          }
+          this.tMesh.instanceMatrix.needsUpdate = true;
+        }
+      });
+
+      // Eventos del DOM una vez cargado
+      window.addEventListener('DOMContentLoaded', () => {
+        updateTelemetryHUD();
+
+        const marker = document.querySelector('#hiro-marker');
+        const rigEl = document.querySelector('#ar-elutriator-entity');
+
+        if (marker) {
+          marker.addEventListener('markerFound', () => {
+            $('marker-status').classList.add('found');$('marker-status-text').textContent = 'Marcador HIRO detectado · Simulación 3D activa';
+            $('reticle-guide').classList.add('hidden');
+          });
+          marker.addEventListener('markerLost', () => {
+            $('marker-status').classList.remove('found');$('marker-status-text').textContent = 'Apunta la cámara al marcador HIRO';
+            $('reticle-guide').classList.remove('hidden');
+          });
+        }
+
+        $('ar-slider-q').addEventListener('input', e => {
+          sim.setParams({ Q_Lmin: parseFloat(e.target.value) });
+          updateTelemetryHUD();
+        });
+
+        $('ar-slider-rho').addEventListener('input', e => {
+          sim.setParams({ rho_p: parseFloat(e.target.value) });
+          updateTelemetryHUD();
+        });
+
+        document.querySelectorAll('.rho-btn').forEach(b => {
+          b.addEventListener('click', () => {
+            const rho = Number(b.dataset.rho);
+            $('ar-slider-rho').value = rho;
+            sim.setParams({ rho_p: rho });
+            updateTelemetryHUD();
+          });
+        });
+
+        $('ar-slider-scale').addEventListener('input', e => {
+          currentScale = parseFloat(e.target.value);
+          $('lbl-scale').textContent = `${Math.round((currentScale / 0.095) * 100)}%`;
+          if (rigEl && rigEl.components['elutriator-ar-rig']) {
+            rigEl.components['elutriator-ar-rig'].syncTransform();
+          }
+        });
+
+        $('btn-orientation').addEventListener('click', () => {
+          standOnTableMode = !standOnTableMode;
+          $('btn-orientation').textContent = standOnTableMode ? '📐 Modo: Mesa' : '🖼️ Modo: Pared';
+          if (rigEl && rigEl.components['elutriator-ar-rig']) {
+            rigEl.components['elutriator-ar-rig'].syncTransform();
+          }
+        });
+
+        $('btn-ar-parabolic').addEventListener('click', () => {
+          const next = !sim.state.parabolic;
+          sim.setParams({ parabolic: next });
+          $('btn-ar-parabolic').textContent = `Efecto Pared: ${next ? 'ON' : 'OFF'}`;
+          $('btn-ar-parabolic').classList.toggle('active', next);
+        });
+
+        $('btn-ar-pulse').addEventListener('click', () => {
+          sim.resetPulse();
+        });
+
+        $('btn-toggle-hud').addEventListener('click', () => {
+          const min = document.body.classList.toggle('hud-minimized');
+          $('btn-toggle-hud').textContent = min ? 'Expandir' : 'Minimizar';
+        });
+      });
+    })();
+  </script>
+
+  <!-- =========================================================================
+       ESCENA A-FRAME + AR.JS ANCLADA AL MARCADOR HIRO
+       ========================================================================= -->
+  <a-scene
+    embedded
+    arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono_and_matrix;"
+    vr-mode-ui="enabled: false"
+    renderer="logarithmicDepthBuffer: true; antialias: true; alpha: true;"
+  >
+    <a-marker preset="hiro" id="hiro-marker" smooth="true" smoothCount="8" smoothTolerance="0.01" smoothThreshold="2">
+      <!-- Plataforma base semitransparente sobre el marcador Hiro -->
+      <a-plane position="0 0.01 0" rotation="-90 0 0" width="1.1" height="1.1" color="#0f172a" opacity="0.55"></a-plane>
+      <!-- Entidad que aloja el elutriador 3D en tiempo real -->
+      <a-entity id="ar-elutriator-entity" elutriator-ar-rig></a-entity>
+    </a-marker>
+
+    <a-entity camera></a-entity>
+  </a-scene>
+
+</body>
+</html>
