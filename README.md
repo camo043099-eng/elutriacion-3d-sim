@@ -15,7 +15,7 @@ Simulación interactiva en 3D y en tiempo real de un **elutriador hidráulico de
 
 | Archivo | Contenido |
 |---|---|
-| `index.html` | Interfaz, vista 3D (Three.js), ecuaciones en vivo (KaTeX) y escáner granulométrico |
+| `index.html` | Interfaz, vista 3D (Three.js), ecuaciones en vivo (KaTeX), panel de gráficas y escáner granulométrico |
 | `ar.html` | Modo de Realidad Aumentada: el elutriador aparece sobre el marcador HIRO (A-Frame 1.3.0 + AR.js 3.4.5) |
 | `marcador-hiro.html`, `assets/hiro.png` | Marcador HIRO listo para imprimir o descargar |
 | `js/sim.js` | Motor físico sin dependencias: hidrodinámica, geometría del equipo y movimiento de partículas |
@@ -142,6 +142,34 @@ Accesos rápidos: **Diseño Base (1.5 L/min)**, **Arrastre (3.0 L/min)** y los s
 * **Eficiencia de clasificación:** porcentaje de partículas que llegó a su salida correcta. Solo se muestra cuando la operación alcanza el **régimen estacionario**: al inicio los gruesos llegan en pocos segundos al colector 1, mientras que los finos tardan mucho más en atravesar las dos columnas, así que un cálculo temprano daría un 100 % engañoso. El simulador considera el régimen estacionario cuando (1) hay al menos 300 descargas, (2) cada clase esperada (≥ 3 % de la alimentación) ya tiene al menos 15 descargas y (3) las fracciones por salida de la primera y la segunda mitad de la ventana difieren menos de 8 puntos. Mientras tanto, el panel indica *régimen transitorio*, qué clases faltan por llegar y muestra los porcentajes medidos atenuados. En el caso base esto ocurre a los 45–60 s; con caudales bajos o fluidos muy viscosos puede tardar más de 2 minutos. La medición se reinicia al cambiar cualquier parámetro.
 * **Ecuaciones del modelo:** se muestran renderizadas, resaltando las que están activas (perfil pistón o parabólico, corrección de Schiller–Naumann).
 * **Sustitución numérica en vivo:** cada ecuación se presenta con los valores actuales de la columna seleccionada (pestañas *Columna 1* / *Columna 2*), en unidades SI.
+
+---
+
+## 📈 Panel de gráficas en tiempo real
+
+El botón **📊 Gráficas** abre una ventana con los datos de la simulación en curso. Se actualiza cada 0.4 s mientras está abierta y se cierra con **✕ Cerrar**, con la tecla **Esc** o haciendo clic fuera de ella.
+
+| Gráfica | Qué muestra |
+|---|---|
+| **1. Curva de partición de Tromp** | Para cada intervalo de diámetro, el porcentaje de partículas que llegó al colector 1 y al colector 2, junto con la curva ideal de corte (escalones en $d_{pc1}$ y $d_{pc2}$). |
+| **2. Velocidad terminal** | La curva $v_t(d_p)$ con las líneas $v_{f1}$ y $v_{f2}$; los cruces son los diámetros de corte. |
+| **3. Evolución temporal** | Fracciones de gruesos, medios y finos y la eficiencia $\eta(t)$ a lo largo de la corrida, con las fracciones teóricas como líneas punteadas. La zona transitoria aparece sombreada y una línea verde marca el instante en que se alcanzó el régimen estacionario. |
+| **4. Descargas por salida** | Histograma apilado: cuántas partículas de cada diámetro llegaron a cada salida. |
+| **5. Matriz de confusión** | Tabla 3×3 de la clase teórica (gruesas, medias, finas) contra la salida real, con el porcentaje de acierto por clase. La diagonal indica clasificación correcta. |
+
+**Indicadores adicionales**
+* **$d_{50}$ real:** diámetro donde cada curva de Tromp cruza el 50 %, comparado con el corte teórico (interpolación lineal entre intervalos con al menos 4 descargas).
+* **Imperfección de Tromp:** $I = \dfrac{d_{75} - d_{25}}{2\, d_{50}}$ de la columna 1. Cuanto más cercana a 0, más nítida es la separación; la dispersión axial y el perfil parabólico la aumentan.
+* **Eficiencia global:** solo se muestra al alcanzar el régimen estacionario (mismo criterio que el panel lateral).
+
+**Interacción**
+* Al pasar el cursor o el dedo sobre una gráfica aparece un cuadro con los valores exactos de ese punto.
+* La gráfica 3 puede verse completa (**Todo**) o con una ventana deslizante (**Últimos 2 min**). Para conservar toda la corrida, la resolución de los puntos antiguos se reduce a la mitad cuando se acumulan muchos.
+* **📌 Guardar corrida:** conserva en gris las curvas actuales de Tromp y de evolución temporal para compararlas con la siguiente configuración (por ejemplo, 1.5 contra 3.0 L/min). Solo se guarda una corrida; **🗑️ Borrar guardada** la quita.
+* **⬇️ CSV:** descarga los parámetros de la corrida y una fila por descarga (tiempo, diámetro, clase teórica y salida real), con codificación compatible con Excel.
+* **🖼️ PNG:** descarga una imagen con las cuatro gráficas, la matriz de confusión y los parámetros de operación.
+
+> El histograma, la matriz, la curva de Tromp y el CSV usan las **últimas 600 descargas** medidas, no toda la corrida. **🔄 Reiniciar Muestreo** borra la serie y vuelve a empezar la medición.
 
 ---
 
