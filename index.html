@@ -1010,6 +1010,8 @@
           <span class="badge">Curvas de Tromp • Cinética • Stokes/Schiller–Naumann</span>
         </h2>
         <div style="display: flex; gap: 8px;">
+          <button class="btn" id="btn-export-csv" title="Descarga las descargas medidas y los parámetros">⬇️ CSV</button>
+          <button class="btn" id="btn-export-png" title="Descarga una imagen con las gráficas">🖼️ PNG</button>
           <button class="btn" id="btn-reset-charts">🔄 Reiniciar Muestreo</button>
           <button class="btn" id="btn-close-charts">✕ Cerrar</button>
         </div>
@@ -1961,6 +1963,112 @@
 
       drawTrompChart(); drawStokesChart(); drawTimelineChart(); drawHistOutChart(); updateConfusion();
     }
+
+    // ---------- Exportar datos e imagen ----------
+    function downloadBlob(blob, name) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    }
+
+    function runStamp() {
+      const d = new Date(), z = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}`;
+    }
+
+    function paramsLine() {
+      const st = sim.state;
+      return `Q = ${st.Q_Lmin} L/min · D1 = ${st.D1_cm} cm · D2 = ${st.D2_cm} cm · ρp = ${st.rho_p} kg/m³ · μ = ${st.mu_mPas} mPa·s`;
+    }
+
+    function exportCsv() {
+      const st = sim.state, m = sim.model, stats = sim.stats();
+      const outs = SIM.OUTLET_NAMES, cls = ['Gruesas', 'Medias', 'Finas'];
+      const rows = [
+        '# Simulador 3D de elutriación hidráulica en serie',
+        `# Fecha,${new Date().toISOString()}`,
+        `# Q_Lmin,${st.Q_Lmin}`, `# D1_cm,${st.D1_cm}`, `# D2_cm,${st.D2_cm}`,
+        `# rho_p_kgm3,${st.rho_p}`, `# mu_mPas,${st.mu_mPas}`,
+        `# dpc1_um,${m.dpc_um[0].toFixed(2)}`, `# dpc2_um,${m.dpc_um[1].toFixed(2)}`,
+        `# vf1_mms,${(m.vf[0] * 1000).toFixed(3)}`, `# vf2_mms,${(m.vf[1] * 1000).toFixed(3)}`,
+        `# estado,${stats.steady ? 'estacionario' : 'transitorio'}`,
+        `# eficiencia,${stats.n ? stats.efficiency.toFixed(4) : ''}`,
+        `# nota,Se exportan las ultimas ${sim.EVENT_WINDOW} descargas medidas`,
+        't_s,dp_um,clase_teorica,salida_real'
+      ];
+      for (const ev of sim.events) {
+        rows.push([ev.t.toFixed(2), ev.d === undefined ? '' : ev.d.toFixed(2), cls[ev.cls], outs[ev.outlet]].join(','));
+      }
+      // BOM para que Excel reconozca los acentos (UTF-8)
+      downloadBlob(new Blob(['\ufeff' + rows.join('\r\n')], { type: 'text/csv;charset=utf-8' }), `elutriacion-${runStamp()}.csv`);
+    }
+
+    function exportPng() {
+      const prevHover = { ...hover };
+      Object.keys(hover).forEach(k => hover[k] = null);
+      drawTrompChart(); drawStokesChart(); drawTimelineChart(); drawHistOutChart();
+
+      const W = 1400, M = 24, G = 16, headH = 92, titleH = 30;
+      const colW = (W - 2 * M - G) / 2, fullW = W - 2 * M;
+      // cada gráfica conserva su proporción original (sin deformarse)
+      const tileH = (cv, w) => Math.round((w - 8) * cv.height / cv.width) + titleH + 4;
+      const h1 = Math.max(tileH(cTromp, colW), tileH(cStokes, colW));
+      const h3 = tileH(cTimeline, fullW), h4 = tileH(cHistOut, colW);
+      const H = headH + h1 + G + h3 + G + h4 + M;
+      const out = document.createElement('canvas'); out.width = W; out.height = H;
+      const c = out.getContext('2d');
+      c.fillStyle = '#0b1220'; c.fillRect(0, 0, W, H);
+
+      c.fillStyle = '#e2e8f0'; c.font = 'bold 20px sans-serif'; c.textBaseline = 'top'; c.textAlign = 'left';
+      c.fillText('Elutriación hidráulica en serie · Gráficas en tiempo real', M, 18);
+      c.fillStyle = '#94a3b8'; c.font = '13px sans-serif';
+      c.fillText(paramsLine(), M, 48);
+      const stt = sim.stats(), mm = sim.model;
+      c.fillText(`Cortes dpc1/dpc2 = ${mm.dpc_um[0].toFixed(1)} / ${mm.dpc_um[1].toFixed(1)} µm · ` +
+        `${stt.steady ? 'régimen estacionario' : 'régimen transitorio'} · ${stt.n} descargas · ` +
+        `eficiencia ${stt.steady ? Math.round(stt.efficiency * 100) + ' %' : 'no disponible'} · ${new Date().toLocaleString('es-CO')}`, M, 68);
+
+      const put = (cv, x, y, w, h, title) => {
+        c.fillStyle = '#0f172a'; c.fillRect(x, y, w, h);
+        c.strokeStyle = 'rgba(148,163,184,0.25)'; c.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+        c.fillStyle = '#38bdf8'; c.font = 'bold 12px sans-serif'; c.textAlign = 'left'; c.textBaseline = 'top';
+        c.fillText(title, x + 10, y + 8);
+        c.drawImage(cv, x + 4, y + titleH, w - 8, Math.round((w - 8) * cv.height / cv.width));
+      };
+      put(cTromp, M, headH, colW, h1, '1. Curva de partición de Tromp');
+      put(cStokes, M + colW + G, headH, colW, h1, '2. Velocidad terminal vs diámetro');
+      put(cTimeline, M, headH + h1 + G, fullW, h3, '3. Evolución temporal de descargas');
+      const y4 = headH + h1 + G + h3 + G;
+      put(cHistOut, M, y4, colW, h4, '4. Descargas por salida');
+
+      // Matriz de confusión dibujada como tabla
+      const xm = M + colW + G;
+      c.fillStyle = '#0f172a'; c.fillRect(xm, y4, colW, h4);
+      c.strokeStyle = 'rgba(148,163,184,0.25)'; c.strokeRect(xm + 0.5, y4 + 0.5, colW - 1, h4 - 1);
+      c.fillStyle = '#38bdf8'; c.font = 'bold 12px sans-serif'; c.textAlign = 'left'; c.textBaseline = 'top';
+      c.fillText('5. Matriz de confusión (teórica → real)', xm + 10, y4 + 8);
+      const rowsT = [...document.querySelectorAll('#confusion-box tr')].map(tr => [...tr.children].map(td => td.textContent));
+      const cw = (colW - 20) / 5, rh = Math.min(48, (h4 - 60) / Math.max(1, rowsT.length));
+      rowsT.forEach((row, r) => row.forEach((txt, k) => {
+        const cx = xm + 10 + k * cw, cy = y4 + 40 + r * rh;
+        const diag = r > 0 && k > 0 && k <= 3 && r === k;
+        c.fillStyle = diag ? 'rgba(74,222,128,0.22)' : 'rgba(15,23,42,0.9)'; c.fillRect(cx, cy, cw, rh);
+        c.strokeStyle = 'rgba(148,163,184,0.25)'; c.strokeRect(cx + 0.5, cy + 0.5, cw - 1, rh - 1);
+        c.fillStyle = r === 0 || k === 0 ? '#94a3b8' : (diag ? '#bbf7d0' : '#e2e8f0');
+        c.font = (r === 0 || k === 0 ? '12px' : 'bold 14px') + ' sans-serif';
+        c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(txt, cx + cw / 2, cy + rh / 2);
+      }));
+      c.fillStyle = '#94a3b8'; c.font = '12px sans-serif'; c.textAlign = 'left'; c.textBaseline = 'top';
+      c.fillText($('confusion-note').textContent.split(' (')[0], xm + 10, y4 + 40 + rowsT.length * rh + 12);
+
+      Object.assign(hover, prevHover);
+      out.toBlob(b => b && downloadBlob(b, `elutriacion-graficas-${runStamp()}.png`), 'image/png');
+    }
+
+    $('btn-export-csv').addEventListener('click', exportCsv);
+    $('btn-export-png').addEventListener('click', exportPng);
 
     $('btn-open-charts').addEventListener('click', () => { chartsModal.classList.add('open'); updateLiveChartsModal(); });
     $('btn-close-charts').addEventListener('click', () => { chartsModal.classList.remove('open'); });
