@@ -546,6 +546,34 @@
       display: inline-block;
     }
 
+    .range-toggle { display: inline-flex; gap: 4px; }
+
+    .mini {
+      background: rgba(30, 41, 59, 0.9);
+      color: #cbd5e1;
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      border-radius: 6px;
+      padding: 3px 9px;
+      font-size: 0.72rem;
+      cursor: pointer;
+    }
+
+    .mini.active {
+      background: rgba(56, 189, 248, 0.22);
+      border-color: var(--accent);
+      color: #f8fafc;
+    }
+
+    .chart-note {
+      font-size: 0.74rem;
+      color: #cbd5e1;
+      line-height: 1.4;
+    }
+
+    .chart-note b { color: #f8fafc; }
+
+    .chart-canvas-box canvas { touch-action: pan-y; cursor: crosshair; }
+
     .chart-canvas-box {
       width: 100%;
       height: 220px;
@@ -1005,6 +1033,7 @@
                 <span style="color: #94a3b8;"><i class="lg-dash"></i>Corte Ideal</span>
               </div>
             </div>
+            <div class="chart-note" id="tromp-d50">d<sub>50</sub> real: acumulando descargas…</div>
             <div class="chart-canvas-box">
               <canvas id="canvas-tromp"></canvas>
             </div>
@@ -1029,6 +1058,10 @@
           <div class="chart-panel-card full-span">
             <div class="chart-panel-header">
               <span class="chart-panel-title">3. Evolución Temporal de Descargas y Estabilización (<span class="msym">t</span> en segundos)</span>
+              <div class="range-toggle" role="group" aria-label="Rango de tiempo">
+                <button type="button" class="mini active" data-range="all">Todo</button>
+                <button type="button" class="mini" data-range="120">Últimos 2 min</button>
+              </div>
               <div class="chart-legend-inline">
                 <span><i class="lg-line" style="background: var(--coarse);"></i>% Gruesos (Col. 1)</span>
                 <span><i class="lg-line" style="background: var(--medium);"></i>% Medios (Col. 2)</span>
@@ -1486,6 +1519,43 @@
     // Registro no intrusivo del diámetro exacto de cada partícula descargada y serie temporal
     const timeSeries = [];
     let seriesClock = 0;
+    let seriesStride = 1, seriesTick = 0;   // submuestreo: se conserva toda la corrida
+    let steadyAt = null;                    // instante (s) en que se alcanzó el régimen estacionario
+    let chartRange = 'all';                 // 'all' | segundos de la ventana deslizante
+    const hover = { tromp: null, stokes: null, timeline: null };
+
+    function resetSeries() {
+      timeSeries.length = 0; seriesClock = 0; seriesStride = 1; seriesTick = 0; steadyAt = null;
+    }
+
+    // Cuadro de lectura (tooltip) dibujado sobre el canvas, con guía vertical
+    function drawTip(ctx, W, H, x, area, lines) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(248, 250, 252, 0.45)'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(x, area.top); ctx.lineTo(x, area.bottom); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.font = '11px sans-serif';
+      const wTxt = Math.max(...lines.map(l => ctx.measureText(l).width));
+      const bw = wTxt + 16, bh = lines.length * 15 + 10;
+      let bx = x + 12; if (bx + bw > W - 4) bx = x - 12 - bw;
+      bx = Math.max(4, bx);
+      const by = area.top + 4;
+      ctx.fillStyle = 'rgba(2, 6, 23, 0.94)'; ctx.strokeStyle = 'rgba(56, 189, 248, 0.55)';
+      ctx.beginPath(); ctx.rect(bx, by, bw, bh); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#e2e8f0'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      lines.forEach((l, i) => ctx.fillText(l, bx + 8, by + 6 + i * 15));
+      ctx.restore();
+    }
+
+    // Primer cruce de un nivel por una curva muestreada [[d, y], ...] (interpolación lineal)
+    function crossing(pts, level, rising) {
+      for (let i = 1; i < pts.length; i++) {
+        const [x0, y0] = pts[i - 1], [x1, y1] = pts[i];
+        const hit = rising ? (y0 < level && y1 >= level) : (y0 >= level && y1 < level);
+        if (hit) return x0 + (level - y0) / (y1 - y0) * (x1 - x0);
+      }
+      return null;
+    }
 
     if (typeof sim._record === 'function') {
       const origRecord = sim._record.bind(sim);
@@ -1583,6 +1653,42 @@
       ctx.textAlign = 'center'; ctx.textBaseline = 'top';
       [20, 60, 100, 140].forEach(d => ctx.fillText(`${d}`, xOf(d), padT + ph + 5));
       ctx.fillStyle = '#cbd5e1'; ctx.fillText('Diámetro de partícula dp (µm)', padL + pw / 2, padT + ph + 16);
+
+      // d50 real e imperfección de Tromp a partir de los eventos medidos
+      const curve = key => {
+        const pts = [];
+        for (let i = 0; i < bins; i++) if (bucket[i].tot >= 4) pts.push([dMin + (i + 0.5) * step, bucket[i][key] / bucket[i].tot]);
+        return pts;
+      };
+      const total = bucket.reduce((a, b) => a + b.tot, 0);
+      const noteEl = $('tromp-d50');
+      if (total < 60) {
+        noteEl.innerHTML = `<span class="msym">d<sub>50</sub></span> real: acumulando descargas… (${total} de 60)`;
+      } else {
+        const c0 = curve('c0'), c1 = curve('c1');
+        const d50a = crossing(c0, 0.5, true), d25a = crossing(c0, 0.25, true), d75a = crossing(c0, 0.75, true);
+        const d50b = crossing(c1, 0.5, true);
+        const fmt = v => v === null ? '—' : `${v.toFixed(0)} µm`;
+        const imp = (d50a && d25a && d75a) ? ((d75a - d25a) / (2 * d50a)).toFixed(2) : '—';
+        const trans = sim.stats().steady ? '' : ' <span style="color: var(--warn)">(régimen transitorio)</span>';
+        noteEl.innerHTML =
+          `<span class="msym">d<sub>50</sub></span> real Col. 1: <b>${fmt(d50a)}</b> (teórico ${dpc1.toFixed(0)} µm) · ` +
+          `Col. 2: <b>${fmt(d50b)}</b> (teórico ${dpc2.toFixed(0)} µm) · ` +
+          `Imperfección <span class="msym">I</span> = <b>${imp}</b>${trans}`;
+      }
+
+      if (hover.tromp !== null && hover.tromp >= padL && hover.tromp <= padL + pw) {
+        const dh = dMin + (hover.tromp - padL) / pw * (dMax - dMin);
+        const bi = Math.max(0, Math.min(bins - 1, Math.floor((dh - dMin) / step)));
+        const b = bucket[bi], lo = dMin + bi * step, hi = lo + step;
+        const pc = v => b.tot ? `${Math.round(100 * v / b.tot)} %` : '—';
+        drawTip(ctx, W, H, hover.tromp, { top: padT, bottom: padT + ph }, [
+          `dp ${lo.toFixed(0)}–${hi.toFixed(0)} µm  (N = ${b.tot})`,
+          `→ Colector 1: ${pc(b.c0)}`,
+          `→ Colector 2: ${pc(b.c1)}`,
+          `→ Rebose: ${pc(b.tot - b.c0 - b.c1)}`
+        ]);
+      }
     }
 
     function drawStokesChart() {
@@ -1626,6 +1732,18 @@
       ctx.textAlign = 'center'; ctx.textBaseline = 'top';
       [20, 60, 100, 140].forEach(d => ctx.fillText(`${d}`, xOf(d), padT + ph + 5));
       ctx.fillStyle = '#cbd5e1'; ctx.fillText('Diámetro dp (µm) vs Velocidad (mm/s)', padL + pw / 2, padT + ph + 16);
+
+      if (hover.stokes !== null && hover.stokes >= padL && hover.stokes <= padL + pw) {
+        const dh = dMin + (hover.stokes - padL) / pw * (dMax - dMin);
+        const vt = Math.abs(SIM.terminalVelocity(dh * 1e-6, sim.state)) * 1000;
+        const dest = vt > vf1_mms ? 'Colector 1 (gruesos)' : (vt > vf2_mms ? 'Colector 2 (medios)' : 'Rebose (finos)');
+        ctx.fillStyle = '#f8fafc'; ctx.beginPath(); ctx.arc(hover.stokes, yOf(vt), 4, 0, Math.PI * 2); ctx.fill();
+        drawTip(ctx, W, H, hover.stokes, { top: padT, bottom: padT + ph }, [
+          `dp = ${dh.toFixed(0)} µm`,
+          `vt = ${vt.toFixed(2)} mm/s`,
+          `Destino: ${dest}`
+        ]);
+      }
     }
 
     function drawTimelineChart() {
@@ -1646,12 +1764,36 @@
       });
       ctx.setLineDash([]);
 
-      if (timeSeries.length >= 2) {
-        const tMin = timeSeries[0].t, tMax = Math.max(tMin + 10, timeSeries[timeSeries.length - 1].t);
+      // Serie visible: toda la corrida o una ventana deslizante
+      let data = timeSeries;
+      if (chartRange !== 'all' && timeSeries.length) {
+        const tEnd = timeSeries[timeSeries.length - 1].t;
+        data = timeSeries.filter(pt => pt.t >= tEnd - chartRange);
+      }
+
+      if (data.length >= 2) {
+        const tMin = data[0].t, tMax = Math.max(tMin + 10, data[data.length - 1].t);
         const xOf = t => padL + ((t - tMin) / (tMax - tMin)) * pw;
+
+        // Zona transitoria sombreada y marca del régimen estacionario
+        const xs = steadyAt === null ? padL + pw : Math.max(padL, Math.min(padL + pw, xOf(steadyAt)));
+        if (xs > padL) {
+          ctx.fillStyle = 'rgba(245, 158, 11, 0.07)';
+          ctx.fillRect(padL, padT, xs - padL, ph);
+          ctx.fillStyle = 'rgba(245, 158, 11, 0.8)'; ctx.font = '10px sans-serif';
+          ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+          ctx.fillText('transitorio', padL + 6, padT + 4);
+        }
+        if (steadyAt !== null && steadyAt >= tMin && steadyAt <= tMax) {
+          ctx.strokeStyle = 'rgba(74, 222, 128, 0.85)'; ctx.lineWidth = 1.4; ctx.setLineDash([5, 4]);
+          ctx.beginPath(); ctx.moveTo(xs, padT); ctx.lineTo(xs, padT + ph); ctx.stroke(); ctx.setLineDash([]);
+          ctx.fillStyle = '#4ade80'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+          ctx.fillText(`estacionario (${Math.round(steadyAt)} s)`, Math.min(xs + 6, padL + pw - 110), padT + 4);
+        }
+
         const plotKey = (getter, color, width) => {
           ctx.strokeStyle = color; ctx.lineWidth = width; ctx.beginPath();
-          timeSeries.forEach((pt, idx) => {
+          data.forEach((pt, idx) => {
             const x = xOf(pt.t), y = yOf(getter(pt));
             if (idx === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
           });
@@ -1666,6 +1808,24 @@
           const tVal = tMin + (k / 4) * (tMax - tMin);
           ctx.fillText(`${Math.round(tVal)}s`, xOf(tVal), padT + ph + 5);
         }
+
+        if (hover.timeline !== null && hover.timeline >= padL && hover.timeline <= padL + pw) {
+          const th = tMin + (hover.timeline - padL) / pw * (tMax - tMin);
+          let best = data[0];
+          for (const pt of data) if (Math.abs(pt.t - th) < Math.abs(best.t - th)) best = pt;
+          const px = xOf(best.t);
+          const P = v => `${(v * 100).toFixed(1)} %`;
+          drawTip(ctx, W, H, px, { top: padT, bottom: padT + ph }, [
+            `t = ${best.t.toFixed(0)} s`,
+            `Gruesos: ${P(best.f0)}`,
+            `Medios: ${P(best.f1)}`,
+            `Finos: ${P(best.f2)}`,
+            `Eficiencia: ${P(best.eff)}`
+          ]);
+        }
+      } else {
+        ctx.fillStyle = '#64748b'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('Esperando descargas para trazar la evolución…', padL + pw / 2, padT + ph / 2);
       }
 
       ctx.fillStyle = '#94a3b8'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
@@ -1691,8 +1851,20 @@
     $('btn-open-charts').addEventListener('click', () => { chartsModal.classList.add('open'); updateLiveChartsModal(); });
     $('btn-close-charts').addEventListener('click', () => { chartsModal.classList.remove('open'); });
     $('btn-reset-charts').addEventListener('click', () => {
-      timeSeries.length = 0; seriesClock = 0; sim.resetPulse(); updateMeasured(); updateLiveChartsModal();
+      resetSeries(); sim.resetPulse(); updateMeasured(); updateLiveChartsModal();
     });
+    [['tromp', cTromp, () => drawTrompChart()], ['stokes', cStokes, () => drawStokesChart()], ['timeline', cTimeline, () => drawTimelineChart()]]
+      .forEach(([key, cv, redraw]) => {
+        const move = e => { hover[key] = e.clientX - cv.getBoundingClientRect().left; redraw(); };
+        cv.addEventListener('pointermove', move);
+        cv.addEventListener('pointerdown', move);
+        cv.addEventListener('pointerleave', () => { hover[key] = null; redraw(); });
+      });
+    document.querySelectorAll('.range-toggle .mini').forEach(btn => btn.addEventListener('click', () => {
+      document.querySelectorAll('.range-toggle .mini').forEach(b => b.classList.toggle('active', b === btn));
+      chartRange = btn.dataset.range === 'all' ? 'all' : Number(btn.dataset.range);
+      drawTimelineChart();
+    }));
     chartsModal.addEventListener('click', e => { if (e.target === chartsModal) chartsModal.classList.remove('open'); });
     window.addEventListener('keydown', e => { if (e.key === 'Escape') chartsModal.classList.remove('open'); });
     window.addEventListener('resize', () => { if (chartsModal.classList.contains('open')) { fitCanvas(cTromp); fitCanvas(cStokes); fitCanvas(cTimeline); drawTrompChart(); drawStokesChart(); drawTimelineChart(); } });
@@ -2406,17 +2578,19 @@
 
         const st = sim.stats();
         if (st.n === 0) {
-          timeSeries.length = 0;
-          seriesClock = 0;
+          resetSeries();
         } else {
-          timeSeries.push({
-            t: st.elapsed !== undefined ? st.elapsed : seriesClock,
-            f0: st.fractions[0],
-            f1: st.fractions[1],
-            f2: st.fractions[2],
-            eff: st.efficiency
-          });
-          if (timeSeries.length > 180) timeSeries.shift();
+          seriesTick++;
+          if (seriesTick % seriesStride === 0) {
+            const t = st.elapsed !== undefined ? st.elapsed : seriesClock;
+            if (st.steady && steadyAt === null) steadyAt = t;
+            timeSeries.push({ t, f0: st.fractions[0], f1: st.fractions[1], f2: st.fractions[2], eff: st.efficiency });
+            if (timeSeries.length > 600) {
+              // se conserva toda la corrida: se reduce a la mitad la resolución y se muestrea más espaciado
+              const keep = timeSeries.filter((_, k) => k % 2 === 0 || k === timeSeries.length - 1);
+              timeSeries.length = 0; timeSeries.push(...keep); seriesStride *= 2;
+            }
+          }
         }
         updateLiveChartsModal();
       }
