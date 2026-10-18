@@ -132,6 +132,17 @@
       transform: translateY(-1px);
     }
 
+    .btn.chart-btn {
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.26), rgba(56, 189, 248, 0.25));
+      border-color: var(--warn);
+      color: #fffbeb;
+    }
+
+    .btn.chart-btn:hover {
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.42), rgba(56, 189, 248, 0.38));
+      transform: translateY(-1px);
+    }
+
     .btn.ghost { border-style: dashed; }
 
     /* ---------- Paneles laterales ---------- */
@@ -410,6 +421,100 @@
 
     #webgl-error strong { color: var(--warn); }
 
+    /* ---------- Ventana Independiente de Gráficas en Tiempo Real ---------- */
+    .charts-body {
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .charts-kpi-bar {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+
+    .charts-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .chart-panel-card {
+      background: rgba(9, 14, 26, 0.92);
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      border-radius: 10px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .chart-panel-card.full-span {
+      grid-column: 1 / -1;
+    }
+
+    .chart-panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .chart-panel-title {
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+    }
+
+    .chart-legend-inline {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      font-size: 0.72rem;
+      color: #cbd5e1;
+    }
+
+    .chart-legend-inline span {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .lg-line {
+      width: 18px;
+      height: 3px;
+      border-radius: 2px;
+      display: inline-block;
+    }
+
+    .lg-dash {
+      width: 18px;
+      height: 0;
+      border-top: 2px dashed currentColor;
+      display: inline-block;
+    }
+
+    .chart-canvas-box {
+      width: 100%;
+      height: 220px;
+      position: relative;
+    }
+
+    .chart-canvas-box.tall {
+      height: 240px;
+    }
+
+    .chart-canvas-box canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    
     /* ---------- Modal de Escáner por Cámara Móvil ---------- */
     .scanner-modal {
       display: none;
@@ -555,6 +660,8 @@
 
     @media (max-width: 880px) {
       .scanner-grid { grid-template-columns: 1fr; }
+      .charts-grid { grid-template-columns: 1fr; }
+      .charts-kpi-bar { grid-template-columns: 1fr 1fr; }
     }
 
     @media (max-width: 760px) {
@@ -597,6 +704,7 @@
       <p>Clasificación hidrogranulométrica continua en contracorriente • WebGL en tiempo real</p>
     </div>
     <div class="camera-controls">
+      <button class="btn chart-btn" id="btn-open-charts">📊 Gráficas en Vivo</button>
       <button class="btn scan-btn" id="btn-open-scanner">📷 Escanear Sólido</button>
       <a href="ar.html" id="btn-ar" class="btn scan-btn" style="text-decoration: none;">🥽 Modo AR (Hiro)</a>
       <a href="marcador-hiro.html" target="_blank" rel="noopener" class="btn" style="text-decoration: none;">🖨️ Marcador</a>
@@ -799,6 +907,97 @@
     <div class="eq-note" id="eq-live-note"></div>
   </aside>
 
+  <!-- =========================================================================
+       MODAL 1: DASHBOARD ANALÍTICO (CURVAS DE TROMP EN VIVO)
+       ========================================================================= -->
+  <div class="overlay-modal" id="charts-modal">
+    <div class="dialog-box chart-dialog">
+      <div class="dialog-header">
+        <h2>
+          📊 Panel de Gráficas Hidrodinámicas en Tiempo Real
+          <span class="badge">Curvas de Tromp • Cinética • Stokes/Schiller–Naumann</span>
+        </h2>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn" id="btn-reset-charts">🔄 Reiniciar Muestreo</button>
+          <button class="btn" id="btn-close-charts">✕ Cerrar</button>
+        </div>
+      </div>
+
+      <div class="charts-body">
+        <div class="charts-kpi-bar">
+          <div class="kpi-card">
+            <div class="label">Descargas Analizadas (<span class="msym">N<sub>desc</sub></span>)</div>
+            <div class="value" id="chart-kpi-n" style="color: var(--accent);">0</div>
+            <div class="sub" id="chart-kpi-state">Esperando descargas…</div>
+          </div>
+          <div class="kpi-card">
+            <div class="label">Eficiencia Global (<span class="msym">&eta;</span>)</div>
+            <div class="value" id="chart-kpi-eff" style="color: var(--ok);">—</div>
+            <div class="sub">Partículas en colector correcto</div>
+          </div>
+          <div class="kpi-card">
+            <div class="label">Cortes Actuales (<span class="msym">d<sub>pc1</sub></span> / <span class="msym">d<sub>pc2</sub></span>)</div>
+            <div class="value" id="chart-kpi-cuts" style="color: var(--warn);">100.0 / 50.0 µm</div>
+            <div class="sub">Ordenadas al 50% de partición</div>
+          </div>
+          <div class="kpi-card">
+            <div class="label">Velocidades (<span class="msym">v<sub>f1</sub></span> / <span class="msym">v<sub>f2</sub></span>)</div>
+            <div class="value" id="chart-kpi-vf" style="color: #22d3ee;">8.99 / 2.25 mm/s</div>
+            <div class="sub" id="chart-kpi-re">Régimen laminar</div>
+          </div>
+        </div>
+
+        <div class="charts-grid">
+          <!-- Gráfica 1: Curvas de Partición o Eficiencia de Tromp -->
+          <div class="chart-panel-card">
+            <div class="chart-panel-header">
+              <span class="chart-panel-title">1. Curva de Partición de Tromp (<span class="msym">E<sub>c</sub></span> vs <span class="msym">d<sub>p</sub></span>)</span>
+              <div class="chart-legend-inline">
+                <span><i class="lg-line" style="background: var(--coarse);"></i>Col. 1 Real</span>
+                <span><i class="lg-line" style="background: var(--medium);"></i>Col. 2 Real</span>
+                <span style="color: #94a3b8;"><i class="lg-dash"></i>Corte Ideal</span>
+              </div>
+            </div>
+            <div class="chart-canvas-box">
+              <canvas id="canvas-tromp"></canvas>
+            </div>
+          </div>
+
+          <!-- Gráfica 2: Curva Hidrodinámica vt(dp) vs vf1 y vf2 -->
+          <div class="chart-panel-card">
+            <div class="chart-panel-header">
+              <span class="chart-panel-title">2. Velocidad Terminal (<span class="msym">v<sub>t</sub></span> vs <span class="msym">d<sub>p</sub></span>) e Intersección</span>
+              <div class="chart-legend-inline">
+                <span><i class="lg-line" style="background: #38bdf8;"></i>Curva <span class="msym">v<sub>t</sub>(d<sub>p</sub>)</span></span>
+                <span style="color: var(--coarse);"><i class="lg-dash"></i><span class="msym">v<sub>f1</sub></span></span>
+                <span style="color: var(--medium);"><i class="lg-dash"></i><span class="msym">v<sub>f2</sub></span></span>
+              </div>
+            </div>
+            <div class="chart-canvas-box">
+              <canvas id="canvas-stokes"></canvas>
+            </div>
+          </div>
+
+          <!-- Gráfica 3: Evolución Temporal de Fracciones y Eficiencia -->
+          <div class="chart-panel-card full-span">
+            <div class="chart-panel-header">
+              <span class="chart-panel-title">3. Evolución Temporal de Descargas y Estabilización (<span class="msym">t</span> en segundos)</span>
+              <div class="chart-legend-inline">
+                <span><i class="lg-line" style="background: var(--coarse);"></i>% Gruesos (Col. 1)</span>
+                <span><i class="lg-line" style="background: var(--medium);"></i>% Medios (Col. 2)</span>
+                <span><i class="lg-line" style="background: var(--fine);"></i>% Finos (Rebose)</span>
+                <span><i class="lg-line" style="background: var(--ok);"></i>Eficiencia <span class="msym">&eta;(t)</span></span>
+              </div>
+            </div>
+            <div class="chart-canvas-box tall">
+              <canvas id="canvas-timeline"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
   <!-- =========================================================================
        MODAL: ESCÁNER ÓPTICO DE SÓLIDOS CON CÁMARA MÓVIL (VISIÓN 2D -> 3D)
        ========================================================================= -->
@@ -1228,6 +1427,225 @@
     });
 
     let showStreamlines = true;
+
+    // =========================================================================
+    // 2.4 PANEL DE GRÁFICAS EN TIEMPO REAL (VENTANA MODAL INDEPENDIENTE)
+    // =========================================================================
+    const chartsModal = $('charts-modal');
+    const cTromp = $('canvas-tromp');
+    const cStokes = $('canvas-stokes');
+    const cTimeline = $('canvas-timeline');
+
+    // Registro no intrusivo del diámetro exacto de cada partícula descargada y serie temporal
+    const timeSeries = [];
+    let seriesClock = 0;
+
+    if (typeof sim._record === 'function') {
+      const origRecord = sim._record.bind(sim);
+      sim._record = function (p) {
+        origRecord(p);
+        if (this.events && this.events.length > 0) {
+          const lastEv = this.events[this.events.length - 1];
+          if (lastEv && lastEv.d === undefined) lastEv.d = p.d;
+        }
+      };
+    }
+
+    function fitCanvas(canvas) {
+      const rect = canvas.parentElement.getBoundingClientRect();
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const w = Math.max(200, Math.round(rect.width));
+      const h = Math.max(120, Math.round(rect.height));
+      if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+      }
+      const ctx = canvas.getContext('2d');
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      return { ctx, W: w, H: h };
+    }
+
+    function drawTrompChart() {
+      const { ctx, W, H } = fitCanvas(cTromp);
+      ctx.clearRect(0, 0, W, H);
+
+      const padL = 42, padR = 16, padT = 14, padB = 28;
+      const pw = W - padL - padR, ph = H - padT - padB;
+      const dMin = SIM.D_MIN_UM || 15, dMax = SIM.D_MAX_UM || 145;
+      const xOf = d => padL + ((d - dMin) / (dMax - dMin)) * pw;
+      const yOf = p => padT + (1 - p) * ph;
+
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.16)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      [0, 0.25, 0.5, 0.75, 1].forEach(p => { const y = yOf(p); ctx.moveTo(padL, y); ctx.lineTo(padL + pw, y); });
+      [20, 40, 60, 80, 100, 120, 140].forEach(d => { const x = xOf(d); ctx.moveTo(x, padT); ctx.lineTo(x, padT + ph); });
+      ctx.stroke();
+
+      ctx.strokeStyle = 'rgba(248, 250, 252, 0.25)';
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(padL, yOf(0.5)); ctx.lineTo(padL + pw, yOf(0.5));
+      ctx.stroke();
+
+      const dpc1 = sim.model.dpc_um[0], dpc2 = sim.model.dpc_um[1];
+      const xc1 = Math.max(padL, Math.min(padL + pw, xOf(dpc1))), xc2 = Math.max(padL, Math.min(padL + pw, xOf(dpc2)));
+
+      ctx.strokeStyle = 'rgba(245, 158, 11, 0.5)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(padL, yOf(0)); ctx.lineTo(xc1, yOf(0)); ctx.lineTo(xc1, yOf(1)); ctx.lineTo(padL + pw, yOf(1));
+      ctx.stroke();
+
+      ctx.strokeStyle = 'rgba(6, 182, 212, 0.5)';
+      ctx.beginPath();
+      ctx.moveTo(padL, yOf(0)); ctx.lineTo(xc2, yOf(0)); ctx.lineTo(xc2, yOf(1)); ctx.lineTo(xc1, yOf(1)); ctx.lineTo(xc1, yOf(0)); ctx.lineTo(padL + pw, yOf(0));
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      const bins = 16, step = (dMax - dMin) / bins;
+      const bucket = Array.from({ length: bins }, () => ({ tot: 0, c0: 0, c1: 0 }));
+
+      for (const ev of (sim.events || sim.history)) {
+        if (ev.d === undefined) continue;
+        const b = Math.max(0, Math.min(bins - 1, Math.floor((ev.d - dMin) / step)));
+        bucket[b].tot++;
+        if (ev.out === 0 || ev.outlet === 0) bucket[b].c0++;
+        else if (ev.out === 1 || ev.outlet === 1) bucket[b].c1++;
+      }
+
+      const drawEmpirical = (key, color) => {
+        ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        let started = false; const pts = [];
+        for (let i = 0; i < bins; i++) {
+          if (bucket[i].tot < 1) continue;
+          const x = xOf(dMin + (i + 0.5) * step), y = yOf(bucket[i][key] / bucket[i].tot);
+          pts.push([x, y]);
+          if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+        }
+        if (started) ctx.stroke();
+        for (const [x, y] of pts) { ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill(); }
+      };
+
+      drawEmpirical('c0', '#f59e0b');
+      drawEmpirical('c1', '#06b6d4');
+
+      ctx.fillStyle = '#94a3b8'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      [0, 50, 100].forEach(p => ctx.fillText(`${p}%`, padL - 6, yOf(p / 100)));
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      [20, 60, 100, 140].forEach(d => ctx.fillText(`${d}`, xOf(d), padT + ph + 5));
+      ctx.fillStyle = '#cbd5e1'; ctx.fillText('Diámetro de partícula dp (µm)', padL + pw / 2, padT + ph + 16);
+    }
+
+    function drawStokesChart() {
+      const { ctx, W, H } = fitCanvas(cStokes);
+      ctx.clearRect(0, 0, W, H);
+      const padL = 44, padR = 16, padT = 14, padB = 28;
+      const pw = W - padL - padR, ph = H - padT - padB;
+      const dMin = SIM.D_MIN_UM || 15, dMax = SIM.D_MAX_UM || 145;
+
+      const vtMax_mms = Math.max(12, Math.abs(SIM.terminalVelocity(dMax * 1e-6, sim.state)) * 1000 * 1.12, sim.model.vf[0] * 1000 * 1.25);
+      const xOf = d => padL + ((d - dMin) / (dMax - dMin)) * pw;
+      const yOf = v_mms => padT + (1 - Math.max(0, Math.min(1, v_mms / vtMax_mms))) * ph;
+
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.16)'; ctx.lineWidth = 1; ctx.beginPath();
+      for (let k = 0; k <= 4; k++) { const y = padT + (k / 4) * ph; ctx.moveTo(padL, y); ctx.lineTo(padL + pw, y); }
+      [20, 60, 100, 140].forEach(d => { const x = xOf(d); ctx.moveTo(x, padT); ctx.lineTo(x, padT + ph); });
+      ctx.stroke();
+
+      const vf1_mms = sim.model.vf[0] * 1000, vf2_mms = sim.model.vf[1] * 1000;
+      ctx.setLineDash([5, 4]); ctx.lineWidth = 1.6;
+      ctx.strokeStyle = '#f59e0b'; ctx.beginPath(); ctx.moveTo(padL, yOf(vf1_mms)); ctx.lineTo(padL + pw, yOf(vf1_mms)); ctx.stroke();
+      ctx.strokeStyle = '#06b6d4'; ctx.beginPath(); ctx.moveTo(padL, yOf(vf2_mms)); ctx.lineTo(padL + pw, yOf(vf2_mms)); ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2.5; ctx.beginPath();
+      for (let i = 0; i <= 64; i++) {
+        const d = dMin + (i / 64) * (dMax - dMin), vt_mms = Math.abs(SIM.terminalVelocity(d * 1e-6, sim.state)) * 1000;
+        const x = xOf(d), y = yOf(vt_mms);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+
+      [{ d: sim.model.dpc_um[0], v: vf1_mms, col: '#f59e0b' }, { d: sim.model.dpc_um[1], v: vf2_mms, col: '#06b6d4' }].forEach(pt => {
+        if (pt.d >= dMin && pt.d <= dMax) {
+          ctx.fillStyle = pt.col; ctx.beginPath(); ctx.arc(xOf(pt.d), yOf(pt.v), 4.5, 0, Math.PI * 2); ctx.fill();
+        }
+      });
+
+      ctx.fillStyle = '#94a3b8'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      [0, 0.5, 1].forEach(f => ctx.fillText(`${(f * vtMax_mms).toFixed(1)}`, padL - 6, padT + (1 - f) * ph));
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      [20, 60, 100, 140].forEach(d => ctx.fillText(`${d}`, xOf(d), padT + ph + 5));
+      ctx.fillStyle = '#cbd5e1'; ctx.fillText('Diámetro dp (µm) vs Velocidad (mm/s)', padL + pw / 2, padT + ph + 16);
+    }
+
+    function drawTimelineChart() {
+      const { ctx, W, H } = fitCanvas(cTimeline);
+      ctx.clearRect(0, 0, W, H);
+      const padL = 42, padR = 16, padT = 14, padB = 28;
+      const pw = W - padL - padR, ph = H - padT - padB;
+      const yOf = p => padT + (1 - Math.max(0, Math.min(1, p))) * ph;
+
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.16)'; ctx.lineWidth = 1; ctx.beginPath();
+      [0, 0.25, 0.5, 0.75, 1].forEach(p => { const y = yOf(p); ctx.moveTo(padL, y); ctx.lineTo(padL + pw, y); });
+      ctx.stroke();
+
+      const thColors = ['rgba(245, 158, 11, 0.38)', 'rgba(6, 182, 212, 0.38)', 'rgba(236, 72, 153, 0.38)'];
+      ctx.setLineDash([4, 4]);
+      sim.model.theory.forEach((th, idx) => {
+        ctx.strokeStyle = thColors[idx]; ctx.beginPath(); ctx.moveTo(padL, yOf(th)); ctx.lineTo(padL + pw, yOf(th)); ctx.stroke();
+      });
+      ctx.setLineDash([]);
+
+      if (timeSeries.length >= 2) {
+        const tMin = timeSeries[0].t, tMax = Math.max(tMin + 10, timeSeries[timeSeries.length - 1].t);
+        const xOf = t => padL + ((t - tMin) / (tMax - tMin)) * pw;
+        const plotKey = (getter, color, width) => {
+          ctx.strokeStyle = color; ctx.lineWidth = width; ctx.beginPath();
+          timeSeries.forEach((pt, idx) => {
+            const x = xOf(pt.t), y = yOf(getter(pt));
+            if (idx === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+          });
+          ctx.stroke();
+        };
+
+        plotKey(p => p.f0, '#f59e0b', 2.2); plotKey(p => p.f1, '#06b6d4', 2.2);
+        plotKey(p => p.f2, '#ec4899', 2.2); plotKey(p => p.eff, '#4ade80', 2.6);
+
+        ctx.fillStyle = '#94a3b8'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        for (let k = 0; k <= 4; k++) {
+          const tVal = tMin + (k / 4) * (tMax - tMin);
+          ctx.fillText(`${Math.round(tVal)}s`, xOf(tVal), padT + ph + 5);
+        }
+      }
+
+      ctx.fillStyle = '#94a3b8'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      [0, 50, 100].forEach(p => ctx.fillText(`${p}%`, padL - 6, yOf(p / 100)));
+      ctx.fillStyle = '#cbd5e1'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.fillText('Tiempo de operación (s) · Líneas punteadas = Fracciones teóricas', padL + pw / 2, padT + ph + 16);
+    }
+
+    function updateLiveChartsModal() {
+      if (!chartsModal.classList.contains('open')) return;
+      const st = sim.stats(), m = sim.model;
+
+      $('chart-kpi-n').textContent = `${st.n}`;
+      $('chart-kpi-state').textContent = st.steady ? 'Régimen estacionario alcanzado' : `Régimen transitorio (${Math.round(st.elapsed || seriesClock)} s)`;
+      $('chart-kpi-eff').textContent = st.n >= 10 ? pct(st.efficiency) : '—';
+      $('chart-kpi-cuts').textContent = `${m.dpc_um[0].toFixed(1)} / ${m.dpc_um[1].toFixed(1)} µm`;
+      $('chart-kpi-vf').textContent = `${(m.vf[0] * 1000).toFixed(2)} / ${(m.vf[1] * 1000).toFixed(2)} mm/s`;
+      $('chart-kpi-re').innerHTML = `Re<sub>p1</sub> = ${m.re[0].toFixed(2)} · Re<sub>p2</sub> = ${m.re[1].toFixed(2)}`;
+
+      drawTrompChart(); drawStokesChart(); drawTimelineChart();
+    }
+
+    $('btn-open-charts').addEventListener('click', () => { chartsModal.classList.add('open'); updateLiveChartsModal(); });
+    $('btn-close-charts').addEventListener('click', () => { chartsModal.classList.remove('open'); });$('btn-reset-charts').addEventListener('click', () => {
+      timeSeries.length = 0; seriesClock = 0; sim.resetPulse(); updateMeasured(); updateLiveChartsModal();
+    });
+    window.addEventListener('resize', () => { if (chartsModal.classList.contains('open')) { fitCanvas(cTromp); fitCanvas(cStokes); fitCanvas(cTimeline); drawTrompChart(); drawStokesChart(); drawTimelineChart(); } });
 
     // =========================================================================
     // 2.5 LÓGICA DE VISIÓN ARTIFICIAL Y ESCÁNER MÓVIL
@@ -1930,8 +2348,28 @@
       sim.step(dt);
       if (view3D) view3D.render();
 
+      seriesClock += dt;
       statsTimer += dt;
-      if (statsTimer > 0.4) { statsTimer = 0; updateMeasured(); }
+      if (statsTimer > 0.4) {
+        statsTimer = 0;
+        updateMeasured();
+
+        const st = sim.stats();
+        if (st.n === 0) {
+          timeSeries.length = 0;
+          seriesClock = 0;
+        } else {
+          timeSeries.push({
+            t: st.elapsed !== undefined ? st.elapsed : seriesClock,
+            f0: st.fractions[0],
+            f1: st.fractions[1],
+            f2: st.fractions[2],
+            eff: st.efficiency
+          });
+          if (timeSeries.length > 180) timeSeries.shift();
+        }
+        updateLiveChartsModal();
+      }
 
       if (scannerModal.classList.contains('open') && sourceType === 'camera' && !isFrozen) {
         camLoopTimer += dt;
