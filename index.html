@@ -421,7 +421,54 @@
 
     #webgl-error strong { color: var(--warn); }
 
-    /* ---------- Ventana Independiente de as en Tiempo Real ---------- */
+    /* ---------- Ventana modal del panel de gráficas ---------- */
+    .overlay-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      background: rgba(7, 11, 20, 0.84);
+      backdrop-filter: blur(10px);
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .overlay-modal.open { display: flex; }
+
+    .dialog-box {
+      background: rgba(15, 23, 42, 0.96);
+      border: 1px solid var(--border-glow);
+      border-radius: 14px;
+      width: 100%;
+      max-width: 1100px;
+      max-height: 92vh;
+      overflow-y: auto;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.8);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .dialog-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 14px 20px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+    }
+
+    .dialog-header h2 {
+      font-size: 1.02rem;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 0;
+    }
+
+    /* ---------- Panel de gráficas en tiempo real ---------- */
     .charts-body {
       padding: 18px 20px;
       display: flex;
@@ -1087,7 +1134,7 @@
           </div>
 
           <div class="hist-card">
-            <div class="eq-caption" style="margin-bottom: 4px;">Distribución de Tamaños Escaneada (<span class="msym">d<sub>p</sub></span> en µm)</div>
+            <div class="eq-caption" style="margin-bottom: 4px; text-transform: none;">Distribución de Tamaños Escaneada (<span class="msym">d<sub>p</sub></span> en µm)</div>
             <canvas id="hist-canvas" width="420" height="110"></canvas>
           </div>
 
@@ -1633,7 +1680,7 @@
 
       $('chart-kpi-n').textContent = `${st.n}`;
       $('chart-kpi-state').textContent = st.steady ? 'Régimen estacionario alcanzado' : `Régimen transitorio (${Math.round(st.elapsed || seriesClock)} s)`;
-      $('chart-kpi-eff').textContent = st.n >= 10 ? pct(st.efficiency) : '—';
+      $('chart-kpi-eff').textContent = st.steady ? pct(st.efficiency) : '— (transitorio)';
       $('chart-kpi-cuts').textContent = `${m.dpc_um[0].toFixed(1)} / ${m.dpc_um[1].toFixed(1)} µm`;
       $('chart-kpi-vf').textContent = `${(m.vf[0] * 1000).toFixed(2)} / ${(m.vf[1] * 1000).toFixed(2)} mm/s`;
       $('chart-kpi-re').innerHTML = `Re<sub>p1</sub> = ${m.re[0].toFixed(2)} · Re<sub>p2</sub> = ${m.re[1].toFixed(2)}`;
@@ -1642,9 +1689,12 @@
     }
 
     $('btn-open-charts').addEventListener('click', () => { chartsModal.classList.add('open'); updateLiveChartsModal(); });
-    $('btn-close-charts').addEventListener('click', () => { chartsModal.classList.remove('open'); });$('btn-reset-charts').addEventListener('click', () => {
+    $('btn-close-charts').addEventListener('click', () => { chartsModal.classList.remove('open'); });
+    $('btn-reset-charts').addEventListener('click', () => {
       timeSeries.length = 0; seriesClock = 0; sim.resetPulse(); updateMeasured(); updateLiveChartsModal();
     });
+    chartsModal.addEventListener('click', e => { if (e.target === chartsModal) chartsModal.classList.remove('open'); });
+    window.addEventListener('keydown', e => { if (e.key === 'Escape') chartsModal.classList.remove('open'); });
     window.addEventListener('resize', () => { if (chartsModal.classList.contains('open')) { fitCanvas(cTromp); fitCanvas(cStokes); fitCanvas(cTimeline); drawTrompChart(); drawStokesChart(); drawTimelineChart(); } });
 
     // =========================================================================
