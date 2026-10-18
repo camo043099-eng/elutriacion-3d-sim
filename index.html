@@ -546,6 +546,24 @@
       display: inline-block;
     }
 
+    .confusion {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+      text-align: center;
+    }
+
+    .confusion th, .confusion td {
+      padding: 8px 6px;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+    }
+
+    .confusion th { color: #94a3b8; font-weight: 600; background: rgba(15, 23, 42, 0.8); }
+    .confusion td.ok { background: rgba(74, 222, 128, 0.16); color: #bbf7d0; font-weight: 700; }
+    .confusion td.err { color: #fcd34d; }
+    .confusion td.zero { color: #475569; }
+    .confusion td.rate { color: #f8fafc; font-weight: 700; }
+
     .range-toggle { display: inline-flex; gap: 4px; }
 
     .mini {
@@ -1072,6 +1090,31 @@
               <canvas id="canvas-timeline"></canvas>
             </div>
           </div>
+
+          <!-- Gráfica 4: Histograma de diámetros por salida -->
+          <div class="chart-panel-card">
+            <div class="chart-panel-header">
+              <span class="chart-panel-title">4. Descargas por Salida (histograma de <span class="msym">d<sub>p</sub></span>)</span>
+              <div class="chart-legend-inline">
+                <span><i class="lg-line" style="background: var(--coarse);"></i>Colector 1</span>
+                <span><i class="lg-line" style="background: var(--medium);"></i>Colector 2</span>
+                <span><i class="lg-line" style="background: var(--fine);"></i>Rebose</span>
+              </div>
+            </div>
+            <div class="chart-canvas-box">
+              <canvas id="canvas-hist-out"></canvas>
+            </div>
+            <div class="chart-note" id="hist-out-note">Últimas descargas medidas.</div>
+          </div>
+
+          <!-- Tabla 5: Matriz de confusión -->
+          <div class="chart-panel-card">
+            <div class="chart-panel-header">
+              <span class="chart-panel-title">5. Matriz de Confusión (clase teórica → salida real)</span>
+            </div>
+            <div id="confusion-box"></div>
+            <div class="chart-note" id="confusion-note"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -1581,6 +1624,19 @@
       return { ctx, W: w, H: h };
     }
 
+    // Cubos de diámetro con las descargas medidas (ventana de eventos del motor)
+    function computeBuckets(dMin, dMax, bins = 16) {
+      const step = (dMax - dMin) / bins;
+      const bucket = Array.from({ length: bins }, () => ({ tot: 0, c0: 0, c1: 0, c2: 0 }));
+      for (const ev of sim.events) {
+        if (ev.d === undefined) continue;
+        const b = bucket[Math.max(0, Math.min(bins - 1, Math.floor((ev.d - dMin) / step)))];
+        b.tot++;
+        if (ev.outlet === 0) b.c0++; else if (ev.outlet === 1) b.c1++; else b.c2++;
+      }
+      return { bins, step, bucket };
+    }
+
     function drawTrompChart() {
       const { ctx, W, H } = fitCanvas(cTromp);
       ctx.clearRect(0, 0, W, H);
@@ -1619,16 +1675,7 @@
       ctx.stroke();
       ctx.setLineDash([]);
 
-      const bins = 16, step = (dMax - dMin) / bins;
-      const bucket = Array.from({ length: bins }, () => ({ tot: 0, c0: 0, c1: 0 }));
-
-      for (const ev of (sim.events || sim.history)) {
-        if (ev.d === undefined) continue;
-        const b = Math.max(0, Math.min(bins - 1, Math.floor((ev.d - dMin) / step)));
-        bucket[b].tot++;
-        if (ev.out === 0 || ev.outlet === 0) bucket[b].c0++;
-        else if (ev.out === 1 || ev.outlet === 1) bucket[b].c1++;
-      }
+      const { bins, step, bucket } = computeBuckets(dMin, dMax);
 
       const drawEmpirical = (key, color) => {
         ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2.4;
@@ -1833,6 +1880,74 @@
       ctx.fillText('Tiempo de operación (s) · Líneas punteadas = Fracciones teóricas', padL + pw / 2, padT + ph + 16);
     }
 
+    const cHistOut = $('canvas-hist-out');
+    hover.histOut = null;
+
+    function drawHistOutChart() {
+      const { ctx, W, H } = fitCanvas(cHistOut);
+      ctx.clearRect(0, 0, W, H);
+      const padL = 42, padR = 16, padT = 14, padB = 28;
+      const pw = W - padL - padR, ph = H - padT - padB;
+      const dMin = SIM.D_MIN_UM || 15, dMax = SIM.D_MAX_UM || 145;
+      const { bins, step, bucket } = computeBuckets(dMin, dMax);
+      const maxC = Math.max(1, ...bucket.map(b => b.tot));
+      const yOf = c => padT + (1 - c / maxC) * ph;
+      const bw = pw / bins;
+
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.16)'; ctx.lineWidth = 1; ctx.beginPath();
+      [0, 0.5, 1].forEach(f => { const y = padT + (1 - f) * ph; ctx.moveTo(padL, y); ctx.lineTo(padL + pw, y); });
+      ctx.stroke();
+
+      const cols = ['#f59e0b', '#06b6d4', '#ec4899'];
+      bucket.forEach((b, i) => {
+        let acc = 0;
+        [b.c0, b.c1, b.c2].forEach((c, k) => {
+          if (!c) return;
+          ctx.fillStyle = cols[k];
+          ctx.fillRect(padL + i * bw + 2, yOf(acc + c), bw - 4, yOf(acc) - yOf(acc + c));
+          acc += c;
+        });
+      });
+
+      ctx.fillStyle = '#94a3b8'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      [0, 0.5, 1].forEach(f => ctx.fillText(`${Math.round(f * maxC)}`, padL - 6, padT + (1 - f) * ph));
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      [20, 60, 100, 140].forEach(d => ctx.fillText(`${d}`, padL + ((d - dMin) / (dMax - dMin)) * pw, padT + ph + 5));
+      ctx.fillStyle = '#cbd5e1'; ctx.fillText('Diámetro de partícula dp (µm) · número de descargas', padL + pw / 2, padT + ph + 16);
+
+      const total = bucket.reduce((a, b) => a + b.tot, 0);
+      $('hist-out-note').textContent = `Últimas ${total} descargas medidas (ventana de ${sim.EVENT_WINDOW}).`;
+
+      if (hover.histOut !== null && hover.histOut >= padL && hover.histOut <= padL + pw) {
+        const bi = Math.max(0, Math.min(bins - 1, Math.floor((hover.histOut - padL) / bw)));
+        const b = bucket[bi], lo = dMin + bi * step;
+        drawTip(ctx, W, H, padL + (bi + 0.5) * bw, { top: padT, bottom: padT + ph }, [
+          `dp ${lo.toFixed(0)}–${(lo + step).toFixed(0)} µm  (N = ${b.tot})`,
+          `Colector 1: ${b.c0}`, `Colector 2: ${b.c1}`, `Rebose: ${b.c2}`
+        ]);
+      }
+    }
+
+    function updateConfusion() {
+      const M = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+      for (const ev of sim.events) if (M[ev.cls] && M[ev.cls][ev.outlet] !== undefined) M[ev.cls][ev.outlet]++;
+      const names = ['Gruesas', 'Medias', 'Finas'], outs = ['Colector 1', 'Colector 2', 'Rebose'];
+      let ok = 0, tot = 0;
+      let html = '<table class="confusion"><thead><tr><th>Teórica ↓ / Real →</th>' +
+        outs.map(o => `<th>${o}</th>`).join('') + '<th>Acierto</th></tr></thead><tbody>';
+      M.forEach((row, i) => {
+        const rs = row.reduce((a, b) => a + b, 0);
+        html += `<tr><th>${names[i]}</th>` + row.map((c, j) =>
+          `<td class="${c === 0 ? 'zero' : (i === j ? 'ok' : 'err')}">${c}</td>`).join('') +
+          `<td class="rate">${rs ? Math.round(100 * row[i] / rs) + ' %' : '—'}</td></tr>`;
+        ok += row[i]; tot += rs;
+      });
+      $('confusion-box').innerHTML = html + '</tbody></table>';
+      $('confusion-note').textContent = tot
+        ? `Acierto global: ${Math.round(100 * ok / tot)} % de ${tot} descargas (diagonal verde = salida correcta; ámbar = clasificada en otra salida).`
+        : 'Esperando descargas…';
+    }
+
     function updateLiveChartsModal() {
       if (!chartsModal.classList.contains('open')) return;
       const st = sim.stats(), m = sim.model;
@@ -1844,7 +1959,7 @@
       $('chart-kpi-vf').textContent = `${(m.vf[0] * 1000).toFixed(2)} / ${(m.vf[1] * 1000).toFixed(2)} mm/s`;
       $('chart-kpi-re').innerHTML = `Re<sub>p1</sub> = ${m.re[0].toFixed(2)} · Re<sub>p2</sub> = ${m.re[1].toFixed(2)}`;
 
-      drawTrompChart(); drawStokesChart(); drawTimelineChart();
+      drawTrompChart(); drawStokesChart(); drawTimelineChart(); drawHistOutChart(); updateConfusion();
     }
 
     $('btn-open-charts').addEventListener('click', () => { chartsModal.classList.add('open'); updateLiveChartsModal(); });
@@ -1852,7 +1967,7 @@
     $('btn-reset-charts').addEventListener('click', () => {
       resetSeries(); sim.resetPulse(); updateMeasured(); updateLiveChartsModal();
     });
-    [['tromp', cTromp, () => drawTrompChart()], ['stokes', cStokes, () => drawStokesChart()], ['timeline', cTimeline, () => drawTimelineChart()]]
+    [['tromp', cTromp, () => drawTrompChart()], ['stokes', cStokes, () => drawStokesChart()], ['timeline', cTimeline, () => drawTimelineChart()], ['histOut', cHistOut, () => drawHistOutChart()]]
       .forEach(([key, cv, redraw]) => {
         const move = e => { hover[key] = e.clientX - cv.getBoundingClientRect().left; redraw(); };
         cv.addEventListener('pointermove', move);
@@ -1866,7 +1981,7 @@
     }));
     chartsModal.addEventListener('click', e => { if (e.target === chartsModal) chartsModal.classList.remove('open'); });
     window.addEventListener('keydown', e => { if (e.key === 'Escape') chartsModal.classList.remove('open'); });
-    window.addEventListener('resize', () => { if (chartsModal.classList.contains('open')) { fitCanvas(cTromp); fitCanvas(cStokes); fitCanvas(cTimeline); drawTrompChart(); drawStokesChart(); drawTimelineChart(); } });
+    window.addEventListener('resize', () => { if (chartsModal.classList.contains('open')) { fitCanvas(cTromp); fitCanvas(cStokes); fitCanvas(cTimeline); fitCanvas(cHistOut); drawTrompChart(); drawStokesChart(); drawTimelineChart(); drawHistOutChart(); } });
 
     // =========================================================================
     // 2.5 LÓGICA DE VISIÓN ARTIFICIAL Y ESCÁNER MÓVIL
