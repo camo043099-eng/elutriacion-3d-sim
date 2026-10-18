@@ -1010,6 +1010,8 @@
           <span class="badge">Curvas de Tromp • Cinética • Stokes/Schiller–Naumann</span>
         </h2>
         <div style="display: flex; gap: 8px;">
+          <button class="btn" id="btn-save-run" title="Guarda la corrida actual para compararla con la siguiente">📌 Guardar corrida</button>
+          <button class="btn" id="btn-clear-run" style="display:none" title="Quita la corrida guardada">🗑️ Borrar guardada</button>
           <button class="btn" id="btn-export-csv" title="Descarga las descargas medidas y los parámetros">⬇️ CSV</button>
           <button class="btn" id="btn-export-png" title="Descarga una imagen con las gráficas">🖼️ PNG</button>
           <button class="btn" id="btn-reset-charts">🔄 Reiniciar Muestreo</button>
@@ -1050,6 +1052,7 @@
                 <span><i class="lg-line" style="background: var(--coarse);"></i>Col. 1 Real</span>
                 <span><i class="lg-line" style="background: var(--medium);"></i>Col. 2 Real</span>
                 <span style="color: #94a3b8;"><i class="lg-dash"></i>Corte Ideal</span>
+                <span id="lg-saved" style="display:none; color: #94a3b8;"><i class="lg-line" style="background: #94a3b8;"></i><span id="lg-saved-txt"></span></span>
               </div>
             </div>
             <div class="chart-note" id="tromp-d50">d<sub>50</sub> real: acumulando descargas…</div>
@@ -1568,6 +1571,14 @@
     let chartRange = 'all';                 // 'all' | segundos de la ventana deslizante
     const hover = { tromp: null, stokes: null, timeline: null };
 
+    let savedRun = null;   // corrida guardada para comparar: { label, c0, c1, series }
+
+    function curvePts(bucket, key, dMin, step) {
+      const pts = [];
+      bucket.forEach((b, i) => { if (b.tot >= 1) pts.push([dMin + (i + 0.5) * step, b[key] / b.tot]); });
+      return pts;
+    }
+
     function resetSeries() {
       timeSeries.length = 0; seriesClock = 0; seriesStride = 1; seriesTick = 0; steadyAt = null;
     }
@@ -1692,6 +1703,22 @@
         if (started) ctx.stroke();
         for (const [x, y] of pts) { ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill(); }
       };
+
+      if (savedRun) {
+        ctx.save(); ctx.strokeStyle = 'rgba(148, 163, 184, 0.75)'; ctx.fillStyle = 'rgba(148, 163, 184, 0.75)';
+        ctx.lineWidth = 1.8; ctx.setLineDash([6, 4]);
+        [savedRun.c0, savedRun.c1].forEach(pts => {
+          if (!pts.length) return;
+          ctx.beginPath();
+          pts.forEach(([d, v], k) => { const x = xOf(d), y = yOf(v); if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+          ctx.stroke();
+        });
+        ctx.setLineDash([]);
+        [savedRun.c0, savedRun.c1].forEach(pts => pts.forEach(([d, v]) => {
+          ctx.beginPath(); ctx.arc(xOf(d), yOf(v), 2.2, 0, Math.PI * 2); ctx.fill();
+        }));
+        ctx.restore();
+      }
 
       drawEmpirical('c0', '#f59e0b');
       drawEmpirical('c1', '#06b6d4');
@@ -1820,7 +1847,11 @@
       }
 
       if (data.length >= 2) {
-        const tMin = data[0].t, tMax = Math.max(tMin + 10, data[data.length - 1].t);
+        let tMin = data[0].t, tMax = Math.max(tMin + 10, data[data.length - 1].t);
+        if (savedRun && chartRange === 'all' && savedRun.series.length >= 2) {
+          tMin = Math.min(tMin, savedRun.series[0].t);
+          tMax = Math.max(tMax, savedRun.series[savedRun.series.length - 1].t);
+        }
         const xOf = t => padL + ((t - tMin) / (tMax - tMin)) * pw;
 
         // Zona transitoria sombreada y marca del régimen estacionario
@@ -1837,6 +1868,19 @@
           ctx.beginPath(); ctx.moveTo(xs, padT); ctx.lineTo(xs, padT + ph); ctx.stroke(); ctx.setLineDash([]);
           ctx.fillStyle = '#4ade80'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
           ctx.fillText(`estacionario (${Math.round(steadyAt)} s)`, Math.min(xs + 6, padL + pw - 110), padT + 4);
+        }
+
+        if (savedRun && chartRange === 'all' && savedRun.series.length >= 2) {
+          ctx.save(); ctx.setLineDash([5, 4]); ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(226, 232, 240, 0.55)';
+          [p => p.f0, p => p.f1, p => p.f2, p => p.eff].forEach(getter => {
+            ctx.beginPath();
+            savedRun.series.forEach((pt, idx) => {
+              const x = xOf(pt.t), y = yOf(getter(pt));
+              if (idx === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+          });
+          ctx.restore();
         }
 
         const plotKey = (getter, color, width) => {
@@ -2066,6 +2110,27 @@
       Object.assign(hover, prevHover);
       out.toBlob(b => b && downloadBlob(b, `elutriacion-graficas-${runStamp()}.png`), 'image/png');
     }
+
+    function refreshSavedUi() {
+      $('btn-clear-run').style.display = savedRun ? '' : 'none';
+      $('lg-saved').style.display = savedRun ? '' : 'none';
+      if (savedRun) $('lg-saved-txt').textContent = `Guardada: ${savedRun.label}`;
+      drawTrompChart(); drawTimelineChart();
+    }
+
+    $('btn-save-run').addEventListener('click', () => {
+      const dMin = SIM.D_MIN_UM || 15, dMax = SIM.D_MAX_UM || 145;
+      const { step, bucket } = computeBuckets(dMin, dMax);
+      const st = sim.state;
+      savedRun = {
+        label: `Q ${st.Q_Lmin} L/min · D₁ ${st.D1_cm} · D₂ ${st.D2_cm} cm · ρp ${st.rho_p}`,
+        c0: curvePts(bucket, 'c0', dMin, step),
+        c1: curvePts(bucket, 'c1', dMin, step),
+        series: timeSeries.map(pt => ({ ...pt }))
+      };
+      refreshSavedUi();
+    });
+    $('btn-clear-run').addEventListener('click', () => { savedRun = null; refreshSavedUi(); });
 
     $('btn-export-csv').addEventListener('click', exportCsv);
     $('btn-export-png').addEventListener('click', exportPng);
