@@ -720,6 +720,17 @@
       display: block;
     }
 
+    .material-hint {
+      font-size: 0.72rem;
+      line-height: 1.45;
+      color: #cbd5e1;
+      margin-top: 6px;
+    }
+
+    .material-hint:empty { display: none; }
+    .material-hint b { color: #f8fafc; }
+    .material-hint .mh-warn { color: var(--warn); }
+
     .select-solid {
       width: 100%;
       background: rgba(15, 23, 42, 0.95);
@@ -838,14 +849,18 @@
         <span>Densidad de partícula (<span class="msym">&rho;<sub>p</sub></span>)</span>
         <span class="control-val" id="val-density">2650 kg/m³</span>
       </div>
-      <!-- Rango ampliado desde 500 hasta 7500 kg/m³ -->
-      <input type="range" id="slider-density" min="500" max="7500" step="50" value="2650" />
+      <!-- Rango ampliado de 400 a 19500 kg/m³ (de harinas y fibras hasta el oro) -->
+      <input type="range" id="slider-density" min="400" max="19500" step="1" value="2650" />
       <div class="preset-row">
         <button class="preset-btn mineral-btn" data-rho="500">Biomasa (500)</button>
         <button class="preset-btn mineral-btn active" data-rho="2650">Cuarzo (2650)</button>
         <button class="preset-btn mineral-btn" data-rho="4500">Barita (4500)</button>
         <button class="preset-btn mineral-btn" data-rho="7500">Galena (7500)</button>
       </div>
+      <select class="select-solid" id="select-material" aria-label="Otros materiales">
+        <option value="">Otros materiales (arena, PET, cemento, harinas, oro…)</option>
+      </select>
+      <div class="material-hint" id="material-hint"></div>
     </div>
 
     <div class="control-group">
@@ -1233,6 +1248,12 @@
               <option value="5150">Magnetita - Óxido de hierro (5150 kg/m³)</option>
               <option value="7500">Galena - Sulfuro de plomo (7500 kg/m³)</option>
             </select>
+            <div class="control-header" style="margin-top: 10px;">
+              <span>Ajuste fino de la densidad (<span class="msym">&rho;<sub>p</sub></span>)</span>
+              <span class="control-val" id="val-scan-rho">2650 kg/m³</span>
+            </div>
+            <input type="range" id="slider-scan-rho" min="400" max="19500" step="1" value="2650" />
+            <div class="material-hint" id="scan-material-hint"></div>
           </div>
 
           <div class="recipe-box" id="scan-recipe-box">
@@ -1494,6 +1515,9 @@
                      s.rho_p === 2650 && s.mu_mPas === 1.0;
       $('preset-base').classList.toggle('active', isBase);
       $('preset-high').classList.toggle('active', s.Q_Lmin === 3.0);
+      const sm = $('select-material');
+      sm.value = [...sm.options].some(o => o.value === String(s.rho_p)) ? String(s.rho_p) : '';
+      $('material-hint').innerHTML = materialHint(s.rho_p, s.rho_f);
     }
 
     function syncSliders() {
@@ -1510,6 +1534,43 @@
       if (geomChanged && view3D) view3D.rebuild();
       updateUI();
     }
+
+    // ---------- Materiales (densidad, fase típica y aplicación) ----------
+    const materialAt = rho => SIM.MATERIALS.find(m => m.rho === rho) || null;
+
+    function fillMaterialSelect(sel) {
+      Object.entries(SIM.MATERIAL_GROUPS).forEach(([key, label]) => {
+        const g = document.createElement('optgroup');
+        g.label = label;
+        SIM.MATERIALS.filter(m => m.group === key).forEach(m => {
+          const o = document.createElement('option');
+          o.value = String(m.rho);
+          o.textContent = `${m.name} (${m.range} kg/m³)`;
+          g.appendChild(o);
+        });
+        sel.appendChild(g);
+      });
+    }
+
+    function materialHint(rho, rho_f) {
+      const m = materialAt(rho), parts = [];
+      const fluidWord = rho_f > 100 ? 'agua' : 'aire';
+      if (m) parts.push(`<b>${m.name}</b> · densidad ${m.range} kg/m³ · fase típica: <b>${m.fluid}</b><br/>${m.use}.`);
+      if (rho <= rho_f) {
+        parts.push(`<span class="mh-warn">⚠️ <span class="msym">&rho;<sub>p</sub> &le; &rho;<sub>f</sub></span>: en ${fluidWord} este sólido flota y todo sube al rebose.</span>`);
+      } else if (m && !m.fluid.toLowerCase().includes(fluidWord)) {
+        parts.push(`<span class="mh-warn">Normalmente se clasifica en ${m.fluid.toLowerCase()}; con ${fluidWord} el resultado es solo ilustrativo.</span>`);
+      }
+      if (m && m.group === 'grain') parts.push('Solo sus derivados finos (harinas, fibras, salvado) se elutrían: el grano entero sedimenta demasiado rápido.');
+      return parts.join('<br/>');
+    }
+
+    fillMaterialSelect($('select-material'));
+    $('select-material').addEventListener('change', e => {
+      if (!e.target.value) return;
+      apply({ rho_p: Number(e.target.value) });
+      syncSliders();
+    });
 
     const sliderMap = [
       ['slider-flow', 'Q_Lmin'], ['slider-density', 'rho_p'], ['slider-visc', 'mu_mPas'],
@@ -2243,7 +2304,7 @@
       const fov_mm = parseFloat($('slider-scan-fov').value);
       const thresh = parseInt($('slider-scan-thresh').value, 10);
       const darkSolids = $('chk-scan-dark').checked;
-      const rho_p = parseFloat($('select-scan-rho').value);
+      const rho_p = parseFloat($('slider-scan-rho').value);
 
       const x0 = Math.floor(W * 0.08), x1 = Math.floor(W * 0.92);
       const y0 = Math.floor(H * 0.08), y1 = Math.floor(H * 0.92);
@@ -2437,10 +2498,7 @@
     }
 
     $('btn-open-scanner').addEventListener('click', () => {
-      const sel = $('select-scan-rho');
-      if ([...sel.options].some(o => Number(o.value) === sim.state.rho_p)) {
-        sel.value = String(sim.state.rho_p);
-      }
+      setScanRho(sim.state.rho_p);
       scannerModal.classList.add('open');
       analyzeParticlesFrame();
     });
@@ -2482,7 +2540,30 @@
       img.src = URL.createObjectURL(f);
     });
 
-    ['slider-scan-fov', 'slider-scan-thresh', 'chk-scan-dark', 'select-scan-rho'].forEach(id => {
+    // Densidad del sólido escaneado: lista de materiales + deslizador sincronizados
+    const scanRhoSel = $('select-scan-rho'), scanRhoSlider = $('slider-scan-rho');
+    fillMaterialSelect(scanRhoSel);
+
+    function setScanRho(rho) {
+      rho = Math.max(SIM.RHO_MIN, Math.min(SIM.RHO_MAX, Math.round(rho)));
+      scanRhoSlider.value = rho;
+      $('val-scan-rho').textContent = `${rho} kg/m³`;
+      scanRhoSel.querySelectorAll('option[data-custom]').forEach(o => o.remove());
+      if (![...scanRhoSel.options].some(o => Number(o.value) === rho)) {
+        const o = document.createElement('option');
+        o.dataset.custom = '1';
+        o.value = String(rho);
+        o.textContent = `Personalizado (${rho} kg/m³)`;
+        scanRhoSel.insertBefore(o, scanRhoSel.firstChild);
+      }
+      scanRhoSel.value = String(rho);
+      $('scan-material-hint').innerHTML = materialHint(rho, sim.state.rho_f);
+    }
+    scanRhoSel.addEventListener('change', () => setScanRho(parseFloat(scanRhoSel.value)));
+    scanRhoSlider.addEventListener('input', () => setScanRho(parseFloat(scanRhoSlider.value)));
+    setScanRho(parseFloat(scanRhoSlider.value));
+
+    ['slider-scan-fov', 'slider-scan-thresh', 'chk-scan-dark', 'select-scan-rho', 'slider-scan-rho'].forEach(id => {
       $(id).addEventListener('input', analyzeParticlesFrame);$(id).addEventListener('change', analyzeParticlesFrame);
     });
 

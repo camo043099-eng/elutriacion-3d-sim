@@ -336,5 +336,27 @@ check('Muestras escaneadas grandes se limitan para que la URL no crezca sin cont
   assert.ok(qs.length < 4000, 'URL de ' + qs.length + ' caracteres');
 });
 
+// ---------------- Materiales ----------------
+check('Los materiales nuevos tienen densidad dentro del rango y ids únicos', () => {
+  assert.strictEqual(S.MATERIALS.length, 14);
+  const ids = new Set(S.MATERIALS.map(m => m.id));
+  assert.strictEqual(ids.size, S.MATERIALS.length);
+  for (const m of S.MATERIALS) {
+    assert.ok(m.rho >= S.RHO_MIN && m.rho <= S.RHO_MAX, `${m.name}: ${m.rho}`);
+    assert.ok(m.fluid && m.use && m.range && S.MATERIAL_GROUPS[m.group], m.name);
+  }
+});
+check('Oro (19300 kg/m³): el rango lo admite y el corte se calcula', () => {
+  const sim = new S.Simulation({ rng: mulberry32(7) });
+  sim.setParams({ rho_p: 19300 });
+  assert.strictEqual(sim.state.rho_p, 19300);
+  assert.ok(sim.model.dpc_um[0] > 10 && sim.model.dpc_um[0] < 60, 'dpc1 = ' + sim.model.dpc_um[0]);
+});
+check('La densidad se acota al rango ampliado (400–19500)', () => {
+  const sim = new S.Simulation({ rng: mulberry32(7) });
+  sim.setParams({ rho_p: 50000 }); assert.strictEqual(sim.state.rho_p, 19500);
+  sim.setParams({ rho_p: 10 }); assert.strictEqual(sim.state.rho_p, 400);
+});
+
 console.log(failures ? `\n${failures} prueba(s) fallaron\n` : '\nTodas las pruebas pasaron\n');
 process.exit(failures ? 1 : 0);

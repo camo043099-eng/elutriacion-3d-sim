@@ -49,7 +49,34 @@
   const MAX_VISUAL_SPEED = 12;  // límite visual para evitar saltos enormes
   const PIPE_SPEED = 5.0;       // velocidad de arrastre dentro de tuberías
   const D_MIN_UM = 15, D_MAX_UM = 145;
-  const RHO_MIN = 500, RHO_MAX = 7500;
+  const RHO_MIN = 400, RHO_MAX = 19500;
+
+  /**
+   * Materiales adicionales para elutriación. `rho` es el valor representativo que se aplica al
+   * seleccionarlo (punto medio cuando la fuente da un rango). `fluid` es la fase típica.
+   */
+  const MATERIAL_GROUPS = {
+    ind: 'Industriales y minerales',
+    grain: 'Granos y derivados (solo harinas, fibras y salvado)',
+    other: 'Otros materiales documentados'
+  };
+  const MATERIALS = [
+    { id: 'cuarzo-vidrio', group: 'ind', name: 'Cuarzo / Vidrio', rho: 2675, range: '2500–2850', fluid: 'Agua / Aire', use: 'Separar micropartículas de tierras raras del polvo de cuarzo' },
+    { id: 'arena', group: 'ind', name: 'Arena', rho: 1630, range: '1560–1707 (aparente)', fluid: 'Agua / Aire', use: 'Clasificación por tamaño de partícula' },
+    { id: 'pet', group: 'ind', name: 'PET (escamas)', rho: 1360, range: '1360 (real)', fluid: 'Agua', use: 'Separación por densidad de plásticos triturados' },
+    { id: 'nylon66', group: 'ind', name: 'Nylon 6/6 (polvo)', rho: 1220, range: '1140–1300', fluid: 'Agua / Aire', use: 'Clasificación de polvos finos' },
+    { id: 'cemento', group: 'ind', name: 'Cemento (polvo)', rho: 1320, range: '1200–1440 (aparente)', fluid: 'Aire', use: 'Clasificación de fracciones finas' },
+    { id: 'cal', group: 'ind', name: 'Cal hidratada', rho: 641, range: '641 (aparente)', fluid: 'Aire', use: 'Separación de partículas finas' },
+    { id: 'yeso', group: 'ind', name: 'Yeso', rho: 1275, range: '1250–1301 (aparente)', fluid: 'Aire', use: 'Clasificación por tamaño' },
+    { id: 'maiz-ddgs', group: 'grain', name: 'Maíz (DDGS, fibra)', rho: 450, range: '~400–500 (aparente, estimado)', fluid: 'Aire', use: 'Separar fibra de fracciones más pesadas' },
+    { id: 'harinas', group: 'grain', name: 'Harinas de trigo/arroz', rho: 600, range: '~500–700 (aparente)', fluid: 'Aire', use: 'Clasificación de partículas finas' },
+    { id: 'mijo', group: 'grain', name: 'Mijo (harina)', rho: 640, range: '~640 (aparente)', fluid: 'Aire', use: 'Clasificación por tamaño' },
+    { id: 'oro', group: 'other', name: 'Oro', rho: 19300, range: '19300', fluid: 'Agua', use: 'Separar partículas densas de ganga' },
+    { id: 'diamante', group: 'other', name: 'Diamante', rho: 3510, range: '3510', fluid: 'Agua', use: 'Concentración gravimétrica' },
+    { id: 'bentonita', group: 'other', name: 'Bentonita (arcilla)', rho: 850, range: '600–1100 (aparente)', fluid: 'Agua', use: 'Purificación de fracción fina' },
+    { id: 'monacita', group: 'other', name: 'Monacita / Xenotima', rho: 5400, range: '4900–5900', fluid: 'Agua', use: 'Separación de tierras raras' }
+  ];
+
 
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -926,7 +953,7 @@
 
   const api = {
     encodeConfig, decodeConfig,
-    LAYOUT, VEL_SCALE, PIPE_SPEED, D_MIN_UM, D_MAX_UM, RHO_MIN, RHO_MAX, OUTLET_NAMES, DEFAULT_STATE, LIMITS, STEADY,
+    LAYOUT, VEL_SCALE, PIPE_SPEED, D_MIN_UM, D_MAX_UM, RHO_MIN, RHO_MAX, MATERIALS, MATERIAL_GROUPS, OUTLET_NAMES, DEFAULT_STATE, LIMITS, STEADY,
     particleRadius, makePath, pipePosition, buildGeometry,
     columnRadiusAt, hopperRadiusAt, columnMaxOffset, hopperMaxOffset, terminalVelocity, cutDiameter, computeModel,
     designRecipe, Simulation
