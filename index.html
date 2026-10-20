@@ -3179,22 +3179,35 @@
     // =========================================================================
     // 5. BUCLE PRINCIPAL
     // =========================================================================
+    let toastTimer = null;
+    function showToast(msg) {
+      let t = $('toast');
+      if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'start-hint'; t.style.cssText = 'bottom:auto;top:16px;border-color:#38bdf8'; document.body.appendChild(t); }
+      t.textContent = msg; t.classList.remove('hidden');
+      clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.add('hidden'), 9000);
+    }
+
     // Calculadora de problemas: «➡ Simular» pasa un caso al simulador 3D
     initCalculator({
       SIM, $, tex,
       onSend(c, r, f, inp) {
         const key = (c.fluid === 'air' || (c.fluid === 'custom' && f.rho_f < 100)) ? 'air' : 'water';
-        const want = { Q_Lmin: r.Q_Lmin, D1_cm: r.D_cm[0], D2_cm: r.D_cm[1], rho_p: inp.rho_p, mu_mPas: f.mu_mPas, psi: r.psi };
+        const want = { Q_Lmin: r.Q_Lmin, D1_cm: r.D_cm[0], D2_cm: r.D_cm[1], rho_p: inp.rho_p, mu_mPas: f.mu_mPas, psi: r.psi, reCorrection: !!r.reCorrection };
         apply(SIM.fluidPatch(key));
         apply(Object.assign({ rho_f: f.rho_f }, want));
         $('chk-recorr').checked = sim.state.reCorrection;
         syncSliders();
         restartFeed();
         const notes = [];
-        const names = { Q_Lmin: 'Q', D1_cm: 'D₁', D2_cm: 'D₂', rho_p: 'ρp', mu_mPas: 'μ', psi: 'ψ' };
+        // comprobación: los cortes del simulador deben coincidir con los de la calculadora
+        const dm = sim.model.dpc_um;
+        if (r.dpc_eq_um && Math.abs(dm[0] / r.dpc_eq_um[0] - 1) > 0.005) notes.push(`Los cortes del simulador (${dm[0].toFixed(1)} / ${dm[1].toFixed(1)} µm) difieren de la calculadora (${r.dpc_eq_um[0].toFixed(1)} / ${r.dpc_eq_um[1].toFixed(1)} µm) porque algún dato quedó acotado.`);
+        const names = { reCorrection: 'corrección Re', Q_Lmin: 'Q', D1_cm: 'D₁', D2_cm: 'D₂', rho_p: 'ρp', mu_mPas: 'μ', psi: 'ψ' };
         for (const k of Object.keys(want)) {
+          if (k === 'reCorrection') continue;
           if (Math.abs(sim.state[k] - want[k]) > 1e-6 * Math.max(1, Math.abs(want[k]))) notes.push(`${names[k]} se acotó a ${Number(sim.state[k].toPrecision(4))} (límite del simulador).`);
         }
+        showToast(`✔ «${c.name}» enviado al simulador: Q = ${sim.state.Q_Lmin.toFixed(2)} L/min · D₁ = ${sim.state.D1_cm.toFixed(2)} cm · D₂ = ${sim.state.D2_cm.toFixed(2)} cm · cortes ${dm[0].toFixed(0)} / ${dm[1].toFixed(0)} µm. Pulsa ▶ Iniciar.`);
         return notes;
       }
     });
