@@ -2560,7 +2560,16 @@
     function drawScanHistogram(sorted, d33, d67) {
       const W = histCanvas.width, H = histCanvas.height;
       histCtx.clearRect(0, 0, W, H);
-      const bins = 18, minD = 10, maxD = 160, step = (maxD - minD) / bins;
+      // Eje ajustado a los tamaños medidos (con 6 % de margen), no a un rango fijo
+      let lo = sorted.length ? sorted[0] : 10, hi = sorted.length ? sorted[sorted.length - 1] : 160;
+      if (sorted.length) { lo = Math.min(lo, d33, d67); hi = Math.max(hi, d33, d67); }
+      const span = Math.max(hi - lo, 5);
+      const minD = Math.max(0, Math.floor(lo - span * 0.06)), maxD = Math.ceil(hi + span * 0.06);
+      const bins = 18, step = (maxD - minD) / bins;
+      const rawT = (maxD - minD) / 5, magT = Math.pow(10, Math.floor(Math.log10(rawT)));
+      const tickStep = [1, 2, 5, 10].map(m => m * magT).find(v => v >= rawT);
+      const ticksD = [];
+      for (let t = Math.ceil(minD / tickStep) * tickStep; t <= maxD + 1e-9; t += tickStep) ticksD.push(Math.round(t * 100) / 100);
       const counts = new Array(bins).fill(0);
       for (const v of sorted) {
         counts[Math.max(0, Math.min(bins - 1, Math.floor((v - minD) / step)))]++;
@@ -2577,7 +2586,7 @@
       }
       histCtx.fillStyle = '#94a3b8';
       histCtx.font = '10px sans-serif';
-      [20, 60, 100, 140].forEach(val => {
+      ticksD.forEach(val => {
         const x = padL + ((val - minD) / (maxD - minD)) * pw;
         histCtx.fillText(`${val}µm`, x - 12, H - 4);
       });
