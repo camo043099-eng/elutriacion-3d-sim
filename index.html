@@ -1782,6 +1782,28 @@
     }
 
     // Cubos de diámetro con las descargas medidas (ventana de eventos del motor)
+    /** Eje de tamaños de las gráficas: se ajusta a las partículas de la simulación (y a los diámetros de corte). */
+    function sizeAxis() {
+      let lo = SIM.D_MIN_UM, hi = SIM.D_MAX_UM;
+      const cf = sim.customFeed;
+      if (cf && cf.active && cf.diameters_um && cf.diameters_um.length) {
+        const k = Math.sqrt(cf.sphericity || 1);
+        lo = Infinity; hi = -Infinity;
+        for (const d of cf.diameters_um) { if (d < lo) lo = d; if (d > hi) hi = d; }
+        lo *= k; hi *= k;
+      }
+      const pLo = lo, pHi = hi;
+      for (const c of sim.model.dpc_um) if (Number.isFinite(c) && c > 0.5 * pLo && c < 2 * pHi) { lo = Math.min(lo, c); hi = Math.max(hi, c); }
+      const span = Math.max(hi - lo, 1);
+      lo = Math.max(0, lo - span * 0.06); hi += span * 0.06;
+      const raw = (hi - lo) / 6, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+      const step = [1, 2, 5, 10].map(m => m * mag).find(v => v >= raw);
+      const dMin = Math.floor(lo), dMax = Math.ceil(hi);   // el eje abarca justo las partículas
+      const ticks = [];
+      for (let t = Math.ceil(dMin / step) * step; t <= dMax + 1e-9; t += step) ticks.push(Math.round(t * 100) / 100);
+      return { dMin, dMax, ticks };
+    }
+
     function computeBuckets(dMin, dMax, bins = 16) {
       const step = (dMax - dMin) / bins;
       const bucket = Array.from({ length: bins }, () => ({ tot: 0, c0: 0, c1: 0, c2: 0 }));
@@ -1800,7 +1822,7 @@
 
       const padL = 42, padR = 16, padT = 14, padB = 28;
       const pw = W - padL - padR, ph = H - padT - padB;
-      const dMin = SIM.D_MIN_UM || 15, dMax = SIM.D_MAX_UM || 145;
+      const ax = sizeAxis(), dMin = ax.dMin, dMax = ax.dMax;
       const xOf = d => padL + ((d - dMin) / (dMax - dMin)) * pw;
       const yOf = p => padT + (1 - p) * ph;
 
@@ -1808,7 +1830,7 @@
       ctx.lineWidth = 1;
       ctx.beginPath();
       [0, 0.25, 0.5, 0.75, 1].forEach(p => { const y = yOf(p); ctx.moveTo(padL, y); ctx.lineTo(padL + pw, y); });
-      [20, 40, 60, 80, 100, 120, 140].forEach(d => { const x = xOf(d); ctx.moveTo(x, padT); ctx.lineTo(x, padT + ph); });
+      ax.ticks.forEach(d => { const x = xOf(d); ctx.moveTo(x, padT); ctx.lineTo(x, padT + ph); });
       ctx.stroke();
 
       ctx.strokeStyle = 'rgba(248, 250, 252, 0.25)';
@@ -1870,7 +1892,7 @@
       ctx.fillStyle = '#94a3b8'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
       [0, 50, 100].forEach(p => ctx.fillText(`${p}%`, padL - 6, yOf(p / 100)));
       ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-      [20, 60, 100, 140].forEach(d => ctx.fillText(`${d}`, xOf(d), padT + ph + 5));
+      ax.ticks.forEach(d => ctx.fillText(`${d}`, xOf(d), padT + ph + 5));
       ctx.fillStyle = '#cbd5e1'; ctx.fillText('Diámetro de partícula dp (µm)', padL + pw / 2, padT + ph + 16);
 
       // d50 real e imperfección de Tromp a partir de los eventos medidos
@@ -1915,7 +1937,7 @@
       ctx.clearRect(0, 0, W, H);
       const padL = 44, padR = 16, padT = 14, padB = 28;
       const pw = W - padL - padR, ph = H - padT - padB;
-      const dMin = SIM.D_MIN_UM || 15, dMax = SIM.D_MAX_UM || 145;
+      const ax = sizeAxis(), dMin = ax.dMin, dMax = ax.dMax;
 
       const vtMax_mms = Math.max(12, Math.abs(SIM.terminalVelocity(dMax * 1e-6, sim.state)) * 1000 * 1.12, sim.model.vf[0] * 1000 * 1.25);
       const xOf = d => padL + ((d - dMin) / (dMax - dMin)) * pw;
@@ -1923,7 +1945,7 @@
 
       ctx.strokeStyle = 'rgba(148, 163, 184, 0.16)'; ctx.lineWidth = 1; ctx.beginPath();
       for (let k = 0; k <= 4; k++) { const y = padT + (k / 4) * ph; ctx.moveTo(padL, y); ctx.lineTo(padL + pw, y); }
-      [20, 60, 100, 140].forEach(d => { const x = xOf(d); ctx.moveTo(x, padT); ctx.lineTo(x, padT + ph); });
+      ax.ticks.forEach(d => { const x = xOf(d); ctx.moveTo(x, padT); ctx.lineTo(x, padT + ph); });
       ctx.stroke();
 
       const vf1_mms = sim.model.vf[0] * 1000, vf2_mms = sim.model.vf[1] * 1000;
@@ -1949,7 +1971,7 @@
       ctx.fillStyle = '#94a3b8'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
       [0, 0.5, 1].forEach(f => ctx.fillText(`${(f * vtMax_mms).toFixed(1)}`, padL - 6, padT + (1 - f) * ph));
       ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-      [20, 60, 100, 140].forEach(d => ctx.fillText(`${d}`, xOf(d), padT + ph + 5));
+      ax.ticks.forEach(d => ctx.fillText(`${d}`, xOf(d), padT + ph + 5));
       ctx.fillStyle = '#cbd5e1'; ctx.fillText('Diámetro dp (µm) vs Velocidad (mm/s)', padL + pw / 2, padT + ph + 16);
 
       if (hover.stokes !== null && hover.stokes >= padL && hover.stokes <= padL + pw) {
@@ -2078,7 +2100,7 @@
       ctx.clearRect(0, 0, W, H);
       const padL = 42, padR = 16, padT = 14, padB = 28;
       const pw = W - padL - padR, ph = H - padT - padB;
-      const dMin = SIM.D_MIN_UM || 15, dMax = SIM.D_MAX_UM || 145;
+      const ax = sizeAxis(), dMin = ax.dMin, dMax = ax.dMax;
       const { bins, step, bucket } = computeBuckets(dMin, dMax);
       const maxC = Math.max(1, ...bucket.map(b => b.tot));
       const yOf = c => padT + (1 - c / maxC) * ph;
@@ -2102,7 +2124,7 @@
       ctx.fillStyle = '#94a3b8'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
       [0, 0.5, 1].forEach(f => ctx.fillText(`${Math.round(f * maxC)}`, padL - 6, padT + (1 - f) * ph));
       ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-      [20, 60, 100, 140].forEach(d => ctx.fillText(`${d}`, padL + ((d - dMin) / (dMax - dMin)) * pw, padT + ph + 5));
+      ax.ticks.forEach(d => ctx.fillText(`${d}`, padL + ((d - dMin) / (dMax - dMin)) * pw, padT + ph + 5));
       ctx.fillStyle = '#cbd5e1'; ctx.fillText('Diámetro de partícula dp (µm) · número de descargas', padL + pw / 2, padT + ph + 16);
 
       const total = bucket.reduce((a, b) => a + b.tot, 0);
@@ -2133,8 +2155,10 @@
         ok += row[i]; tot += rs;
       });
       $('confusion-box').innerHTML = html + '</tbody></table>';
+      const ideal = !sim.state.parabolic && !sim.state.dispersion;
       $('confusion-note').textContent = tot
-        ? `Acierto global: ${Math.round(100 * ok / tot)} % de ${tot} descargas (diagonal verde = salida correcta; ámbar = clasificada en otra salida).`
+        ? `Acierto global: ${Math.round(100 * ok / tot)} % de ${tot} descargas (diagonal verde = salida correcta; ámbar = clasificada en otra salida).` +
+          (ideal && ok === tot ? ' Con el modelo ideal (sin perfil parabólico ni dispersión) cada partícula sigue exactamente la regla de Stokes, por eso el acierto es 100 % por construcción; activa esos efectos en «Efectos hidrodinámicos» para ver errores de clasificación.' : '')
         : 'Esperando descargas…';
     }
 
@@ -2263,7 +2287,7 @@
     }
 
     $('btn-save-run').addEventListener('click', () => {
-      const dMin = SIM.D_MIN_UM || 15, dMax = SIM.D_MAX_UM || 145;
+      const ax = sizeAxis(), dMin = ax.dMin, dMax = ax.dMax;
       const { step, bucket } = computeBuckets(dMin, dMax);
       const st = sim.state;
       savedRun = {

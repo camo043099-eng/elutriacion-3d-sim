@@ -399,5 +399,19 @@ check('Alimentación: todo empieza en la tolva, nada entra hasta soltar y luego 
   assert.ok(dentro5 > 0 && dentro20 > dentro5, `${dentro5} → ${dentro20}`);
 });
 
+check('Los eventos guardan el diámetro (para la curva de Tromp) y la matriz se degrada con efectos no ideales', () => {
+  const run = opts => {
+    const sim = new S.Simulation({ count: 300, rng: mulberry32(11) });
+    sim.setParams(opts); sim.loadHopper(); sim.release(10);
+    for (let i = 0; i < 12000; i++) sim.step(0.05);
+    return sim.events;
+  };
+  const ideal = run({});
+  assert.ok(ideal.length > 100 && ideal.every(e => Number.isFinite(e.d)));
+  assert.ok(ideal.every(e => e.cls === e.outlet), 'modelo ideal: 100 % por construcción');
+  const real = run({ parabolic: true });
+  assert.ok(real.some(e => e.cls !== e.outlet), 'con perfil parabólico debe haber errores de clasificación');
+});
+
 console.log(failures ? `\n${failures} prueba(s) fallaron\n` : '\nTodas las pruebas pasaron\n');
 process.exit(failures ? 1 : 0);

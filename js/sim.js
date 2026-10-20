@@ -655,7 +655,7 @@
   };
 
   Simulation.prototype._record = function (p) {
-    this.events.push({ outlet: p.dest, cls: this.classOf(p.d), t: this.time });
+    this.events.push({ outlet: p.dest, cls: this.classOf(p.d), d: p.d, t: this.time });
     if (this.events.length > this.EVENT_WINDOW) this.events.shift();
   };
 
