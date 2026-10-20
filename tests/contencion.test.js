@@ -272,7 +272,7 @@ function recipeConsistent(r, base) {
     assert.ok(Math.abs(m.vf[c] - r.vf[c]) < 1e-12, 'v_f de la receta ≠ simulador');
     assert.ok(Math.abs(m.dpc_um[c] - r.dpc_um[c]) < 1e-9, 'd_pc de la receta ≠ simulador');
   }
-  assert.ok(r.Q_Lmin >= 0.5 && r.Q_Lmin <= 4 && r.D1_cm >= 4 && r.D1_cm <= 9 && r.D2_cm >= 8 && r.D2_cm <= 18, 'fuera de rango');
+  assert.ok(r.Q_Lmin >= 0.1 && r.Q_Lmin <= 10 && r.D1_cm >= 4 && r.D1_cm <= 9 && r.D2_cm >= 8 && r.D2_cm <= 18, 'fuera de rango');
 }
 check('Cuarzo: cortes logrados ≈ objetivo, sin avisos', () => {
   const base = Object.assign({}, S.DEFAULT_STATE, { rho_p: 2650 });
@@ -290,11 +290,11 @@ check('Galena (Re_p > 1): usa Schiller–Naumann y logra los cortes', () => {
 });
 check('Caudal fuera de rango: ajusta D1, avisa y sigue logrando el corte', () => {
   const base = Object.assign({}, S.DEFAULT_STATE, { rho_p: 7500 });
-  const r = S.designRecipe({ dUpper_um: 140, dLower_um: 60, sphericity: 1, rho_p: 7500 }, base);
+  const r = S.designRecipe({ dUpper_um: 300, dLower_um: 60, sphericity: 1, rho_p: 7500 }, base);
   recipeConsistent(r, base);
   assert.ok(r.warnings.length > 0, 'debe avisar');
   assert.ok(r.D1_cm < 5.95, 'debería reducir D1');
-  assert.ok(Math.abs(r.dpc_um[0] - 140) < 2.5, r.dpc_um[0]);
+  assert.ok(Math.abs(r.dpc_um[0] - 300) < 2.5, r.dpc_um[0]);
 });
 check('Objetivo imposible: avisa y la receta sigue siendo coherente', () => {
   const base = Object.assign({}, S.DEFAULT_STATE, { rho_p: 2650 });
@@ -321,7 +321,7 @@ check('Ida y vuelta conserva parámetros, efectos y sólido escaneado', () => {
 });
 check('Valores inválidos o fuera de rango se descartan o se acotan', () => {
   const out = S.decodeConfig('?Q=99&rho=abc&mu=-3&D1=1&D2=50&feed=1_2&psi=7');
-  assert.strictEqual(out.state.Q_Lmin, 4);
+  assert.strictEqual(out.state.Q_Lmin, 10);
   assert.ok(!('rho_p' in out.state));
   assert.strictEqual(out.state.mu_mPas, 0.5);
   assert.strictEqual(out.state.D1_cm, 4);
@@ -376,6 +376,13 @@ check('Un material más ligero que el aire no existe; el cuarzo en aire no flota
   const sim = new S.Simulation({ rng: mulberry32(7) });
   sim.setParams({ rho_p: 641 }); assert.ok(sim.state.rho_p < sim.state.rho_f);
   sim.setParams(S.fluidPatch('air')); assert.ok(sim.state.rho_p > sim.state.rho_f);
+});
+
+check('Agua: caudal acotado a 0.1–10 L/min', () => {
+  const sim = new S.Simulation({ rng: mulberry32(7) });
+  sim.setParams({ Q_Lmin: 0.01 }); assert.strictEqual(sim.state.Q_Lmin, 0.1);
+  sim.setParams({ Q_Lmin: 50 }); assert.strictEqual(sim.state.Q_Lmin, 10);
+  assert.ok(Number.isFinite(sim.model.dpc_um[0]) && sim.model.dpc_um[0] > 0);
 });
 
 console.log(failures ? `\n${failures} prueba(s) fallaron\n` : '\nTodas las pruebas pasaron\n');

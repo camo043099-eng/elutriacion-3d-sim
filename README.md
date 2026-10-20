@@ -114,7 +114,7 @@ Cuando se usa un sólido escaneado, el escáner estima la esfericidad $\psi$ a p
 ### Variables de operación
 | Control | Rango | Valor base |
 |---|---|---|
-| Caudal de agua $Q$ | 0.50 – 4.00 L/min | 1.50 L/min |
+| Caudal de agua $Q$ | 0.10 – 10.00 L/min (agua) | 1.50 L/min |
 | Densidad de partícula $\rho_p$ | 500 – 7500 kg/m³ | 2650 kg/m³ (cuarzo) |
 | Viscosidad del fluido $\mu$ | 0.50 – 3.50 mPa·s | 1.00 mPa·s (agua a 20 °C) |
 | Diámetro columna 1 $D_1$ | 4.00 – 9.00 cm | 5.95 cm |
@@ -138,7 +138,7 @@ Accesos rápidos: **Diseño Base (1.5 L/min)**, **Arrastre (3.0 L/min)** y los s
 ## 🧱 Materiales, fluido e inicio de la simulación
 
 - **Inicio manual:** la simulación abre en pausa. Configura fluido, caudal y sólido y pulsa **▶ Iniciar** (después **⏸ Pausar** / **▶ Reanudar**). «Conectar Datos al Simulador 3D y Ejecutar Elutriación» del escáner sí la arranca.
-- **Fluido que entra:** **💧 Agua** (ρ_f = 1000 kg/m³, μ = 1 mPa·s, Q 0.5–4 L/min) o **💨 Aire** (ρ_f = 1.2 kg/m³, μ = 0.018 mPa·s, Q 10–400 L/min, corrección de Schiller–Naumann activada). Los rangos de los deslizadores y los presets cambian con el fluido; con aire la animación se escala para que se vea igual de fluida (solo cambia el tiempo mostrado).
+- **Fluido que entra:** **💧 Agua** (ρ_f = 1000 kg/m³, μ = 1 mPa·s, Q 0.1–10 L/min) o **💨 Aire** (ρ_f = 1.2 kg/m³, μ = 0.018 mPa·s, Q 10–400 L/min, corrección de Schiller–Naumann activada). Los rangos de los deslizadores y los presets cambian con el fluido; con aire la animación se escala para que se vea igual de fluida (solo cambia el tiempo mostrado).
 - **Densidad ampliada:** 400–19 500 kg/m³. Además de los 4 botones rápidos hay una lista de materiales (cuarzo/vidrio, arena, PET, nylon 6/6, cemento, cal, yeso, DDGS de maíz, harinas, mijo, oro, diamante, bentonita y monacita/xenotima) con su rango, fase típica y aplicación. La misma lista, un deslizador de densidad y el selector de fluido están en el escáner de cámara.
 - **Enlaces AR:** la URL incluye `fl=air` cuando el fluido es aire.
 
@@ -196,7 +196,7 @@ El botón **📷 Escanear Sólido** abre un módulo que mide la distribución de
 3. Se obtienen el número de partículas $N$, los percentiles $d_{10}$, $d_{50}$ y $d_{90}$, la esfericidad media y un histograma de tamaños.
 4. Se proponen los cortes $d_{pc1} = P_{67}$ y $d_{pc2} = P_{33}$, que dividen la muestra en tres fracciones similares.
 
-**Receta de elutriación:** con la densidad elegida para el sólido (biomasa, polipropileno, nylon, carbón, cuarzo, caliza, barita, magnetita o galena), el escáner calcula $Q$, $D_1$ y $D_2$ con **las mismas ecuaciones del simulador** (función `designRecipe` de `js/sim.js`): usa la Ley de Stokes y, si $Re_p > 1$, la corrección de Schiller–Naumann. Mantiene $D_1 = 5.95$ cm siempre que el caudal quede entre 0.50 y 4.00 L/min; si no, ajusta $D_1$ (4–9 cm) para lograr el corte. Si algún valor queda fuera del rango del equipo, lo avisa y muestra los cortes que realmente se obtendrán. Si el sólido es más ligero que el agua, advierte que flotará.
+**Receta de elutriación:** con la densidad elegida para el sólido (biomasa, polipropileno, nylon, carbón, cuarzo, caliza, barita, magnetita o galena), el escáner calcula $Q$, $D_1$ y $D_2$ con **las mismas ecuaciones del simulador** (función `designRecipe` de `js/sim.js`): usa la Ley de Stokes y, si $Re_p > 1$, la corrección de Schiller–Naumann. Mantiene $D_1 = 5.95$ cm siempre que el caudal quede entre 0.10 y 10.00 L/min (agua); si no, ajusta $D_1$ (4–9 cm) para lograr el corte. Si algún valor queda fuera del rango del equipo, lo avisa y muestra los cortes que realmente se obtendrán. Si el sólido es más ligero que el agua, advierte que flotará.
 
 **Conectar al simulador:** el botón **🚀 Conectar Datos al Simulador 3D y Ejecutar Elutriación** aplica la receta (caudal, diámetros, densidad y corrección), reemplaza la alimentación por la distribución de tamaños medida y lanza un pulso. Mientras está activo se muestra el aviso *Sólido Escaneado Activo*; **Restaurar alimentación estándar** vuelve a la distribución uniforme de 15 – 145 µm.
 

@@ -348,7 +348,7 @@
   const FLUIDS = {
     water: {
       key: 'water', name: 'Agua', rho_f: 1000, mu_mPas: 1.00, Q_default: 1.5, reCorrection: false,
-      limits: { Q_Lmin: [0.50, 4.00, 0.05], mu_mPas: [0.50, 3.50, 0.05] }
+      limits: { Q_Lmin: [0.10, 10.00, 0.05], mu_mPas: [0.50, 3.50, 0.05] }
     },
     air: {
       key: 'air', name: 'Aire', rho_f: 1.2, mu_mPas: 0.018, Q_default: 100, reCorrection: true,
