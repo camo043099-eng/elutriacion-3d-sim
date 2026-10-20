@@ -1278,6 +1278,19 @@
           </div>
 
           <div class="control-group" style="margin-top:10px">
+            <label class="check-row" style="display:flex;align-items:center;gap:8px;font-size:0.82rem;cursor:pointer">
+              <input type="checkbox" id="chk-scan-psi" /> Ya conozco la esfericidad (<span class="msym">&psi;</span>): usar este valor en lugar del estimado por la imagen
+            </label>
+            <div id="scan-psi-box" style="display:none">
+              <div class="control-header" style="margin-top: 8px;">
+                <span>Esfericidad (<span class="msym">&psi;</span>)</span>
+                <span class="control-val" id="val-scan-psi">0.85</span>
+              </div>
+              <input type="range" id="slider-scan-psi" min="0.40" max="1.00" step="0.01" value="0.85" />
+            </div>
+          </div>
+
+          <div class="control-group" style="margin-top:10px">
             <div class="control-header"><span>Fluido que entra</span></div>
             <div class="preset-row" style="margin-top:0">
               <button class="preset-btn scan-fluid-btn active" data-fluid="water">💧 Agua</button>
@@ -2348,6 +2361,7 @@
     let loadedPhoto = null;
     let synthParticles = [];
     let currentPrescription = null;
+    let scanPsiKnown = false, scanPsiValue = 0.85;   // esfericidad ingresada a mano (dato conocido)
     let scanFluid = 'water';   // fluido elegido en el escáner (se aplica al simulador al conectar)
 
     function buildSyntheticSample() {
@@ -2475,7 +2489,8 @@
       const pctVal = q => N ? sorted[Math.min(N - 1, Math.floor(q * N))] : 0;
 
       const d10 = pctVal(0.10), d33 = pctVal(0.33), d50 = pctVal(0.50), d67 = pctVal(0.67), d90 = pctVal(0.90);
-      const meanPsi = N ? (grains.reduce((s, g) => s + g.psi, 0) / N) : 0.85;
+      const measuredPsi = N ? (grains.reduce((s, g) => s + g.psi, 0) / N) : 0.85;
+      const meanPsi = scanPsiKnown ? scanPsiValue : measuredPsi;   // dato conocido > estimado por imagen
 
       scanCtx.drawImage(bufferCanvas, 0, 0, scanCanvas.width, scanCanvas.height);
       const sx = scanCanvas.width / W, sy = scanCanvas.height / H;
@@ -2517,7 +2532,7 @@
       $('scan-kpi-scale').textContent = `Resolución: ${umPerPx.toFixed(2)} µm/px`;
       $('scan-kpi-d50').textContent = N ? `${d50.toFixed(1)} µm` : '—';
       $('scan-kpi-d1090').innerHTML = N ? `<span class="msym">d<sub>10</sub></span>: ${d10.toFixed(0)} | <span class="msym">d<sub>90</sub></span>: ${d90.toFixed(0)} µm` : '—';
-      $('scan-kpi-psi').textContent = N ? meanPsi.toFixed(2) : '—';
+      $('scan-kpi-psi').textContent = (N || scanPsiKnown) ? meanPsi.toFixed(2) + (scanPsiKnown ? ' (dato)' : '') : '—';
       $('scan-kpi-cuts').textContent = N ? `${d67.toFixed(0)} / ${d33.toFixed(0)} µm` : '— / —';
 
       if (N >= 5) {
@@ -2701,6 +2716,37 @@
     scanRhoSel.addEventListener('change', () => setScanRho(parseFloat(scanRhoSel.value)));
     scanRhoSlider.addEventListener('input', () => setScanRho(parseFloat(scanRhoSlider.value)));
     setScanRho(parseFloat(scanRhoSlider.value));
+    // Esfericidad conocida: deslizador + valor exacto (0.40–1.00)
+    const psiSlider = $('slider-scan-psi'), psiChk = $('chk-scan-psi');
+    const psiNum = document.createElement('div');
+    psiNum.className = 'num-entry';
+    psiNum.innerHTML = '<span>Valor exacto:</span><input type="number" inputmode="decimal" aria-label="Esfericidad exacta" min="0.4" max="1" step="any"><span>ψ</span>';
+    psiSlider.insertAdjacentElement('afterend', psiNum);
+    const psiInp = psiNum.querySelector('input');
+    function setScanPsi(v) {
+      scanPsiValue = Math.min(1, Math.max(0.4, Math.round(v * 1000) / 1000));
+      psiSlider.value = scanPsiValue;
+      $('val-scan-psi').textContent = scanPsiValue.toFixed(2);
+      if (document.activeElement !== psiInp) psiInp.value = scanPsiValue;
+      analyzeParticlesFrame();
+    }
+    psiChk.addEventListener('change', () => {
+      scanPsiKnown = psiChk.checked;
+      $('scan-psi-box').style.display = scanPsiKnown ? 'block' : 'none';
+      setScanPsi(scanPsiValue);
+    });
+    psiSlider.addEventListener('input', () => setScanPsi(parseFloat(psiSlider.value)));
+    const commitPsi = () => {
+      const v = parseFloat(psiInp.value.replace(',', '.'));
+      if (!Number.isFinite(v)) { psiInp.classList.add('bad'); return; }
+      psiInp.classList.toggle('bad', v < 0.4 || v > 1);
+      setScanPsi(v);
+    };
+    psiInp.addEventListener('keydown', e => { if (e.key === 'Enter') { commitPsi(); psiInp.blur(); } });
+    psiInp.addEventListener('change', commitPsi);
+    psiInp.addEventListener('blur', () => { psiInp.classList.remove('bad'); psiInp.value = scanPsiValue; });
+    psiInp.value = scanPsiValue;
+
     document.querySelectorAll('.scan-fluid-btn').forEach(b => b.addEventListener('click', () => {
       scanFluid = b.dataset.fluid;
       document.querySelectorAll('.scan-fluid-btn').forEach(x => x.classList.toggle('active', x === b));
