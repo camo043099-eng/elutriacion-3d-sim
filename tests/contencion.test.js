@@ -358,5 +358,25 @@ check('La densidad se acota al rango ampliado (400–19500)', () => {
   sim.setParams({ rho_p: 10 }); assert.strictEqual(sim.state.rho_p, 400);
 });
 
+check('Aire: corte ≈100 µm para cuarzo, caudal y μ acotados a los límites del aire', () => {
+  const sim = new S.Simulation({ rng: mulberry32(7) });
+  sim.setParams(S.fluidPatch('air'));
+  assert.strictEqual(sim.state.fluid, 'air');
+  assert.ok(sim.model.dpc_um[0] > 80 && sim.model.dpc_um[0] < 130, 'dpc1 = ' + sim.model.dpc_um[0]);
+  sim.setParams({ Q_Lmin: 5000 }); assert.strictEqual(sim.state.Q_Lmin, 400);
+  sim.setParams({ mu_mPas: 1 }); assert.strictEqual(sim.state.mu_mPas, 0.025);
+  sim.setParams(S.fluidPatch('water')); assert.strictEqual(sim.state.Q_Lmin, 1.5);
+});
+check('El fluido viaja por la URL (fl=air) y el agua no lo añade', () => {
+  const air = S.decodeConfig(S.encodeConfig(Object.assign({}, S.DEFAULT_STATE, S.fluidPatch('air')), null)).state;
+  assert.strictEqual(air.fluid, 'air'); assert.strictEqual(air.Q_Lmin, 100); assert.strictEqual(air.rho_f, 1.2);
+  assert.ok(!/fl=/.test(S.encodeConfig(S.DEFAULT_STATE, null)));
+});
+check('Un material más ligero que el aire no existe; el cuarzo en aire no flota, la cal sí en agua', () => {
+  const sim = new S.Simulation({ rng: mulberry32(7) });
+  sim.setParams({ rho_p: 641 }); assert.ok(sim.state.rho_p < sim.state.rho_f);
+  sim.setParams(S.fluidPatch('air')); assert.ok(sim.state.rho_p > sim.state.rho_f);
+});
+
 console.log(failures ? `\n${failures} prueba(s) fallaron\n` : '\nTodas las pruebas pasaron\n');
 process.exit(failures ? 1 : 0);
