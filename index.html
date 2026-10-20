@@ -917,6 +917,14 @@
       <input type="range" id="slider-visc" min="0.50" max="3.50" step="0.05" value="1.00" />
     </div>
 
+    <div class="control-group">
+      <div class="control-header">
+        <span>Esfericidad (<span class="msym">&psi;</span>)</span>
+        <span class="control-val" id="val-psi">1.00</span>
+      </div>
+      <input type="range" id="slider-psi" min="0.40" max="1.00" step="0.01" value="1.00" />
+    </div>
+
     <div class="section-title spaced">Geometría de Columnas</div>
 
     <div class="control-group">
@@ -1566,11 +1574,17 @@
     function updateUI() {
       const s = sim.state, m = sim.model;
       refreshNumEntries();
+      if (scannedSolid.active && sim.customFeed.active) scannedSolid.sphericity = sim.customFeed.sphericity;
+      if (scannedSolid.active && sim.customFeed.active) {
+        $('scanned-status-desc').innerHTML =
+          `<span class="msym">N</span> = <b>${scannedSolid.diameters_um.length}</b> granos | <span class="msym">d<sub>50</sub></span> = <b>${scannedSolid.d50.toFixed(1)} µm</b> | <span class="msym">&psi;</span> = <b>${scannedSolid.sphericity.toFixed(2)}</b>`;
+      }
       $('val-flow').textContent = `${s.Q_Lmin.toFixed(2)} L/min`;
       $('val-density').textContent = `${s.rho_p} kg/m³`;
       $('val-visc').textContent = `${s.mu_mPas.toFixed(s.fluid === 'air' ? 4 : 2)} mPa·s`;
       $('lbl-flow').textContent = s.fluid === 'air' ? 'Caudal de aire' : 'Caudal de agua';
       $('label-water').textContent = s.fluid === 'air' ? 'Entrada de aire' : 'Entrada de agua';
+      $('val-psi').textContent = (s.psi || 1).toFixed(2);
       $('val-d1').textContent = `${s.D1_cm.toFixed(2)} cm`;
       $('val-d2').textContent = `${s.D2_cm.toFixed(2)} cm`;
 
@@ -1654,6 +1668,7 @@
       $('slider-flow').value = s.Q_Lmin;
       $('slider-density').value = s.rho_p;
       $('slider-visc').value = s.mu_mPas;
+      $('slider-psi').value = s.psi || 1;
       $('slider-d1').value = s.D1_cm;
       $('slider-d2').value = s.D2_cm;
     }
@@ -1703,7 +1718,7 @@
 
     const sliderMap = [
       ['slider-flow', 'Q_Lmin'], ['slider-density', 'rho_p'], ['slider-visc', 'mu_mPas'],
-      ['slider-d1', 'D1_cm'], ['slider-d2', 'D2_cm']
+      ['slider-d1', 'D1_cm'], ['slider-d2', 'D2_cm'], ['slider-psi', 'psi']
     ];
     sliderMap.forEach(([id, key]) => {
       $(id).addEventListener('input', e => apply({ [key]: parseFloat(e.target.value) }));
@@ -1712,6 +1727,7 @@
     addNumEntry('slider-flow', 'L/min', 2, v => { apply({ Q_Lmin: v }); syncSliders(); }, () => sim.state.Q_Lmin);
     addNumEntry('slider-density', 'kg/m³', 0, v => { apply({ rho_p: Math.round(v) }); syncSliders(); }, () => sim.state.rho_p);
     addNumEntry('slider-visc', 'mPa·s', 4, v => { apply({ mu_mPas: v }); syncSliders(); }, () => sim.state.mu_mPas);
+    addNumEntry('slider-psi', 'ψ', 3, v => { apply({ psi: Math.round(v * 1000) / 1000 }); syncSliders(); }, () => sim.state.psi || 1);
     addNumEntry('slider-d1', 'cm', 2, v => { apply({ D1_cm: v }); syncSliders(); }, () => sim.state.D1_cm);
     addNumEntry('slider-d2', 'cm', 2, v => { apply({ D2_cm: v }); syncSliders(); }, () => sim.state.D2_cm);
     refreshNumEntries();
@@ -1846,9 +1862,12 @@
       let lo = SIM.D_MIN_UM, hi = SIM.D_MAX_UM;
       const cf = sim.customFeed;
       if (cf && cf.active && cf.diameters_um && cf.diameters_um.length) {
-        const k = Math.sqrt(cf.sphericity || 1);
+        const k = Math.sqrt(sim.state.psi || cf.sphericity || 1);
         lo = Infinity; hi = -Infinity;
         for (const d of cf.diameters_um) { if (d < lo) lo = d; if (d > hi) hi = d; }
+        lo *= k; hi *= k;
+      } else {
+        const k = Math.sqrt(sim.state.psi || 1);
         lo *= k; hi *= k;
       }
       const pLo = lo, pHi = hi;
@@ -3165,18 +3184,17 @@
       SIM, $, tex,
       onSend(c, r, f, inp) {
         const key = (c.fluid === 'air' || (c.fluid === 'custom' && f.rho_f < 100)) ? 'air' : 'water';
-        const want = { Q_Lmin: r.Q_Lmin, D1_cm: r.D_cm[0], D2_cm: r.D_cm[1], rho_p: inp.rho_p, mu_mPas: f.mu_mPas };
+        const want = { Q_Lmin: r.Q_Lmin, D1_cm: r.D_cm[0], D2_cm: r.D_cm[1], rho_p: inp.rho_p, mu_mPas: f.mu_mPas, psi: r.psi };
         apply(SIM.fluidPatch(key));
         apply(Object.assign({ rho_f: f.rho_f }, want));
         $('chk-recorr').checked = sim.state.reCorrection;
         syncSliders();
         restartFeed();
         const notes = [];
-        const names = { Q_Lmin: 'Q', D1_cm: 'D₁', D2_cm: 'D₂', rho_p: 'ρp', mu_mPas: 'μ' };
+        const names = { Q_Lmin: 'Q', D1_cm: 'D₁', D2_cm: 'D₂', rho_p: 'ρp', mu_mPas: 'μ', psi: 'ψ' };
         for (const k of Object.keys(want)) {
           if (Math.abs(sim.state[k] - want[k]) > 1e-6 * Math.max(1, Math.abs(want[k]))) notes.push(`${names[k]} se acotó a ${Number(sim.state[k].toPrecision(4))} (límite del simulador).`);
         }
-        if (inp.psi < 0.999) notes.push('La esfericidad ψ no se transfiere: en el simulador solo se aplica con un sólido escaneado.');
         return notes;
       }
     });

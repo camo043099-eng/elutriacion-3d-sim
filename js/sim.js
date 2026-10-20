@@ -329,7 +329,8 @@
     }
 
     // Fracciones teóricas estándar (distribución uniforme de tamaños 15–145 µm)
-    const above = d => clamp((D_MAX_UM - d) / (D_MAX_UM - D_MIN_UM), 0, 1);
+    const sq = Math.sqrt(s.psi || 1);   // d_eq de la distribución uniforme: [D_MIN·√ψ, D_MAX·√ψ]
+    const above = d => clamp((D_MAX_UM * sq - d) / ((D_MAX_UM - D_MIN_UM) * sq), 0, 1);
     const fCoarse = above(dpc_um[0]);
     const fMedium = Math.max(0, above(dpc_um[1]) - fCoarse);
     const fFine = Math.max(0, 1 - fCoarse - fMedium);
@@ -369,7 +370,8 @@
     Q_Lmin: 1.50, rho_p: 2650, rho_f: 1000, mu_mPas: 1.00, fluid: 'water',
     D1_cm: 5.95, D2_cm: 11.90, g: 9.81,
     parabolic: false, reCorrection: false, dispersion: false,
-    sphericity: 1.0
+    sphericity: 1.0,
+    psi: 1.0          // esfericidad de Wadell: los tamaños se usan como d_eq = d·√ψ (corte real = d_pc/√ψ)
   };
 
   const OUTLET_NAMES = ['Colector 1', 'Colector 2', 'Tanque de rebose'];
@@ -413,10 +415,9 @@
     if (this.customFeed && this.customFeed.active && this.customFeed.diameters_um.length > 0) {
       const arr = this.customFeed.diameters_um;
       const idx = Math.floor(this.rng() * arr.length) % arr.length;
-      const sqrtPsi = Math.sqrt(this.customFeed.sphericity || 1.0);
-      return arr[idx] * sqrtPsi;
+      return arr[idx] * Math.sqrt(this.state.psi || 1.0);
     }
-    return D_MIN_UM + this.rng() * (D_MAX_UM - D_MIN_UM);
+    return (D_MIN_UM + this.rng() * (D_MAX_UM - D_MIN_UM)) * Math.sqrt(this.state.psi || 1.0);
   };
 
   Simulation.prototype._refresh = function (geometryChanged) {
@@ -439,7 +440,15 @@
     }
     const geomChanged = ('D1_cm' in partial && partial.D1_cm !== this.state.D1_cm) ||
                         ('D2_cm' in partial && partial.D2_cm !== this.state.D2_cm);
+    const psiOld = this.state.psi || 1;
+    if ('psi' in partial) partial.psi = clamp(partial.psi, 0.4, 1.0);
     Object.assign(this.state, partial);
+    if ('psi' in partial && partial.psi !== psiOld) {
+      // los tamaños de las partículas ya presentes se reescalan al nuevo d_eq = d·√ψ
+      const k = Math.sqrt(partial.psi / psiOld);
+      for (const p of this.particles) p.d *= k;
+      this.customFeed.sphericity = partial.psi;
+    }
     if ('fluid' in partial || 'Q_Lmin' in partial || 'mu_mPas' in partial) {
       const lim = fluidOf(this.state.fluid).limits;
       this.state.Q_Lmin = clamp(this.state.Q_Lmin, lim.Q_Lmin[0], lim.Q_Lmin[1]);
@@ -461,6 +470,7 @@
     this.customFeed.active = true;
     this.customFeed.diameters_um = diameters_um.slice();
     this.customFeed.sphericity = psi;
+    this.state.psi = psi;
 
     const sqrtPsi = Math.sqrt(psi);
     for (let i = 0; i < this.particles.length; i++) {
@@ -478,6 +488,7 @@
     this.customFeed.active = false;
     this.customFeed.diameters_um = [];
     this.customFeed.sphericity = 1.0;
+    this.state.psi = 1.0;
     for (const p of this.particles) {
       this._redraw(p);
     }
@@ -1115,6 +1126,7 @@
   function encodeConfig(state, customFeed) {
     const q = new URLSearchParams();
     if (state.fluid === 'air') q.set('fl', 'air');
+    if (state.psi !== undefined && state.psi < 0.999) q.set('psi', String(Number(state.psi.toFixed(3))));
     for (const [k, key] of CONFIG_KEYS) q.set(k, String(Number(state[key].toFixed(state.fluid === 'air' && key === 'mu_mPas' ? 4 : 2))));
     for (const [k, key] of CONFIG_FLAGS) if (state[key]) q.set(k, '1');
     if (customFeed && customFeed.active && customFeed.diameters_um.length) {
@@ -1146,6 +1158,7 @@
       else if (key === 'mu_mPas') state[key] = clamp(v, lim.mu_mPas[0], lim.mu_mPas[1]);
       else state[key] = clamp(v, lo, hi);
     }
+    if (q.has('psi') && Number.isFinite(parseFloat(q.get('psi')))) state.psi = clamp(parseFloat(q.get('psi')), 0.4, 1);
     for (const [k, key] of CONFIG_FLAGS) if (q.has(k) || air) state[key] = q.get(k) === '1';
     let feed = null;
     if (q.has('feed')) {

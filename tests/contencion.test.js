@@ -439,5 +439,20 @@ check('Calculadora: propiedades del agua y del aire a temperatura', () => {
   assert.ok(Math.abs(a.rho_f - 1.204) < 0.01 && Math.abs(a.mu_mPas - 0.0181) < 0.0003);
 });
 
+check('Esfericidad ψ editable en el simulador: reescala los tamaños (d_eq = d·√ψ), se acota y viaja por la URL', () => {
+  const sim = new S.Simulation({ count: 200, rng: mulberry32(5) });
+  const mean = () => sim.particles.reduce((a, p) => a + p.d, 0) / sim.particles.length;
+  const m1 = mean();
+  sim.setParams({ psi: 0.64 });
+  assert.ok(Math.abs(mean() / m1 - 0.8) < 1e-9, 'los tamaños deben escalar con √ψ');
+  sim.setParams({ psi: 5 }); assert.strictEqual(sim.state.psi, 1);
+  sim.setParams({ psi: 0.1 }); assert.strictEqual(sim.state.psi, 0.4);
+  const q = S.encodeConfig(Object.assign({}, S.DEFAULT_STATE, { psi: 0.7 }), null);
+  assert.strictEqual(S.decodeConfig(q).state.psi, 0.7);
+  assert.ok(!/psi=/.test(S.encodeConfig(S.DEFAULT_STATE, null)));
+  sim.setCustomFeed([50, 80, 120], 0.85); assert.strictEqual(sim.state.psi, 0.85);
+  sim.setParams({ psi: 0.6 }); assert.strictEqual(sim.customFeed.sphericity, 0.6);
+});
+
 console.log(failures ? `\n${failures} prueba(s) fallaron\n` : '\nTodas las pruebas pasaron\n');
 process.exit(failures ? 1 : 0);
