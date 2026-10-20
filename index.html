@@ -873,6 +873,9 @@
         <button class="preset-btn mineral-btn" data-rho="4500">Barita (4500)</button>
         <button class="preset-btn mineral-btn" data-rho="7500">Galena (7500)</button>
       </div>
+      <select class="select-solid" id="select-material" aria-label="Otros materiales">
+        <option value="">Otros materiales (arena, PET, cemento, harinas, oro…)</option>
+      </select>
       <div class="material-hint" id="material-hint"></div>
     </div>
 
@@ -1544,6 +1547,8 @@
       const lim = SIM.limitsFor(s.fluid);
       const sf = $('slider-flow'), sv = $('slider-visc');
       [[sf, lim.Q_Lmin], [sv, lim.mu_mPas]].forEach(([el, l]) => { el.min = l[0]; el.max = l[1]; el.step = l[2]; });
+      const sm = $('select-material');
+      sm.value = [...sm.options].some(o => o.value === String(s.rho_p)) ? String(s.rho_p) : '';
       $('material-hint').innerHTML = materialHint(s.rho_p, s.rho_f);
     }
 
@@ -1591,6 +1596,13 @@
       if (m && m.group === 'grain') parts.push('Solo sus derivados finos (harinas, fibras, salvado) se elutrían: el grano entero sedimenta demasiado rápido.');
       return parts.join('<br/>');
     }
+
+    fillMaterialSelect($('select-material'));
+    $('select-material').addEventListener('change', e => {
+      if (!e.target.value) return;
+      apply({ rho_p: Number(e.target.value) });
+      syncSliders();
+    });
 
     const sliderMap = [
       ['slider-flow', 'Q_Lmin'], ['slider-density', 'rho_p'], ['slider-visc', 'mu_mPas'],

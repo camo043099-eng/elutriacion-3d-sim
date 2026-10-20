@@ -139,7 +139,7 @@ Accesos rápidos: **Diseño Base (1.5 L/min)**, **Arrastre (3.0 L/min)** y los s
 
 - **Inicio manual:** la simulación abre en pausa. Configura fluido, caudal y sólido y pulsa **▶ Iniciar** (después **⏸ Pausar** / **▶ Reanudar**). «Conectar Datos al Simulador 3D y Ejecutar Elutriación» del escáner sí la arranca.
 - **Fluido que entra:** **💧 Agua** (ρ_f = 1000 kg/m³, μ = 1 mPa·s, Q 0.5–4 L/min) o **💨 Aire** (ρ_f = 1.2 kg/m³, μ = 0.018 mPa·s, Q 10–400 L/min, corrección de Schiller–Naumann activada). Los rangos de los deslizadores y los presets cambian con el fluido; con aire la animación se escala para que se vea igual de fluida (solo cambia el tiempo mostrado).
-- **Densidad ampliada:** 400–19 500 kg/m³. La pantalla principal conserva los 4 botones rápidos y el deslizador (con aviso de material y flotación). La lista de materiales (cuarzo/vidrio, arena, PET, nylon 6/6, cemento, cal, yeso, DDGS de maíz, harinas, mijo, oro, diamante, bentonita y monacita/xenotima, con rango, fase típica y aplicación) está en el escáner de cámara, junto con su deslizador de densidad y el selector de fluido.
+- **Densidad ampliada:** 400–19 500 kg/m³. Además de los 4 botones rápidos hay una lista de materiales (cuarzo/vidrio, arena, PET, nylon 6/6, cemento, cal, yeso, DDGS de maíz, harinas, mijo, oro, diamante, bentonita y monacita/xenotima) con su rango, fase típica y aplicación. La misma lista, un deslizador de densidad y el selector de fluido están en el escáner de cámara.
 - **Enlaces AR:** la URL incluye `fl=air` cuando el fluido es aire.
 
 ## 📊 Resultados en vivo
