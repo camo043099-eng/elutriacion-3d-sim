@@ -340,8 +340,33 @@
   // ---------------------------------------------------------------------------
   // 5. SIMULACIÓN DE PARTÍCULAS
   // ---------------------------------------------------------------------------
+  /**
+   * Fluidos de trabajo. Con aire (ρ_f = 1.2 kg/m³, μ = 0.018 mPa·s) las velocidades terminales son
+   * ~100 veces mayores, así que el caudal está en otro intervalo y la corrección de Schiller–Naumann
+   * se activa por defecto (Re_p > 1 con facilidad).
+   */
+  const FLUIDS = {
+    water: {
+      key: 'water', name: 'Agua', rho_f: 1000, mu_mPas: 1.00, Q_default: 1.5, reCorrection: false,
+      limits: { Q_Lmin: [0.50, 4.00, 0.05], mu_mPas: [0.50, 3.50, 0.05] }
+    },
+    air: {
+      key: 'air', name: 'Aire', rho_f: 1.2, mu_mPas: 0.018, Q_default: 100, reCorrection: true,
+      limits: { Q_Lmin: [10, 400, 5], mu_mPas: [0.015, 0.025, 0.0005] }
+    }
+  };
+  const fluidOf = key => FLUIDS[key] || FLUIDS.water;
+
+  /** Cambios de estado que corresponden a seleccionar un fluido (propiedades, caudal base y corrección). */
+  function fluidPatch(key) {
+    const f = fluidOf(key);
+    return { fluid: f.key, rho_f: f.rho_f, mu_mPas: f.mu_mPas, Q_Lmin: f.Q_default, reCorrection: f.reCorrection };
+  }
+
+  const VISUAL_REF_VF = 0.009;   // m/s: velocidad ascendente "de referencia" para animar (≈ caso base con agua)
+
   const DEFAULT_STATE = {
-    Q_Lmin: 1.50, rho_p: 2650, rho_f: 1000, mu_mPas: 1.00,
+    Q_Lmin: 1.50, rho_p: 2650, rho_f: 1000, mu_mPas: 1.00, fluid: 'water',
     D1_cm: 5.95, D2_cm: 11.90, g: 9.81,
     parabolic: false, reCorrection: false, dispersion: false,
     sphericity: 1.0
@@ -396,6 +421,9 @@
 
   Simulation.prototype._refresh = function (geometryChanged) {
     this.model = computeModel(this.state, this.customFeed);
+    // Con aire las velocidades reales son ~100 veces mayores: se anima a la misma rapidez visual
+    // que con agua (solo cambia el tiempo mostrado, no quién va a qué salida).
+    this.visualK = this.state.fluid === 'air' ? clamp(VISUAL_REF_VF / this.model.vf[0], 1e-4, 1) : 1;
     if (geometryChanged || !this.geo) this.geo = buildGeometry(this.state);
     for (const p of this.particles) {
       p.rad = particleRadius(p.d);
@@ -412,6 +440,11 @@
     const geomChanged = ('D1_cm' in partial && partial.D1_cm !== this.state.D1_cm) ||
                         ('D2_cm' in partial && partial.D2_cm !== this.state.D2_cm);
     Object.assign(this.state, partial);
+    if ('fluid' in partial || 'Q_Lmin' in partial || 'mu_mPas' in partial) {
+      const lim = fluidOf(this.state.fluid).limits;
+      this.state.Q_Lmin = clamp(this.state.Q_Lmin, lim.Q_Lmin[0], lim.Q_Lmin[1]);
+      this.state.mu_mPas = clamp(this.state.mu_mPas, lim.mu_mPas[0], lim.mu_mPas[1]);
+    }
     this._refresh(geomChanged);
     this._resetMeasurement();
     return geomChanged;
@@ -737,7 +770,7 @@
           const c = p.col;
           const vf = this.fluidVelocity(c, p.y, p.r);
           // Si p.vt < 0 (flotación natural cuando ρ_p < ρ_f), (vf - p.vt) es positivo incluso en zona muerta
-          let vy = clamp((vf - p.vt) * VEL_SCALE, -MAX_VISUAL_SPEED, MAX_VISUAL_SPEED);
+          let vy = clamp((vf - p.vt) * VEL_SCALE * this.visualK, -MAX_VISUAL_SPEED, MAX_VISUAL_SPEED);
           p.y += vy * dt;
           if (s.dispersion && p.y > L.DEAD_ZONE_Y) p.y += 0.35 * this._gauss() * Math.sqrt(dt);
 
@@ -776,7 +809,7 @@
           const gz = p.phase === 1 ? p.wz : p.tz;
           const dx = gx - p.x, dy = gy - p.y, dz = gz - p.z;
           const dist = Math.hypot(dx, dy, dz);
-          const speed = clamp(Math.abs(p.vt) * VEL_SCALE, 1.4, 8);
+          const speed = clamp(Math.abs(p.vt) * VEL_SCALE * this.visualK, 1.4, 8);
           const stepLen = speed * dt;
           if (dist <= stepLen) {
             p.x = gx; p.y = gy; p.z = gz;
@@ -812,7 +845,7 @@
     for (const t of this.tracers) {
       const R = geo.R[t.col];
       const r = t.rFrac * R;
-      t.y += this.fluidVelocity(t.col, t.y, r) * VEL_SCALE * dt;
+      t.y += this.fluidVelocity(t.col, t.y, r) * VEL_SCALE * this.visualK * dt;
       if (t.y > L.COL_TOP - 0.3) t.y = L.INLET_Y;
       t.x = geo.cx[t.col] + Math.cos(t.ang) * r;
       t.z = Math.sin(t.ang) * r;
@@ -824,11 +857,17 @@
   // ---------------------------------------------------------------------------
   /** Rangos de operación permitidos por los controles del simulador. */
   const LIMITS = {
-    Q_Lmin: [0.50, 4.00, 0.05],   // [mín, máx, paso]
+    Q_Lmin: FLUIDS.water.limits.Q_Lmin,   // [mín, máx, paso] (agua)
     D1_cm: [4.00, 9.00, 0.05],
     D2_cm: [8.00, 18.00, 0.10],
     D1_DEFAULT: 5.95
   };
+
+  /** Rangos de los controles para un fluido (el caudal y la viscosidad dependen de él). */
+  function limitsFor(fluid) {
+    const f = fluidOf(fluid);
+    return { Q_Lmin: f.limits.Q_Lmin, mu_mPas: f.limits.mu_mPas, D1_cm: LIMITS.D1_cm, D2_cm: LIMITS.D2_cm, D1_DEFAULT: LIMITS.D1_DEFAULT };
+  }
 
   const snap = (v, [lo, hi, step]) => Number(clamp(Math.round(v / step) * step, lo, hi).toFixed(2));
   const areaFromD = D_cm => Math.PI * Math.pow(D_cm / 100, 2) / 4;      // m²
@@ -851,6 +890,7 @@
     });
     const target = [Math.max(1, sample.dUpper_um) * sq, Math.max(1, sample.dLower_um) * sq]; // d_eq (µm)
     const warnings = [];
+    const lim = limitsFor(st.fluid);
 
     if (st.rho_p <= st.rho_f) {
       return { floats: true, target_um: target, warnings,
@@ -868,25 +908,25 @@
     }
 
     // 2) Columna 1: se mantiene D1 de diseño; si Q queda fuera de rango, se ajusta D1
-    let D1 = LIMITS.D1_DEFAULT;
+    let D1 = lim.D1_DEFAULT;
     let Q = vf[0] * areaFromD(D1) * 60000;             // L/min
-    if (Q > LIMITS.Q_Lmin[1] || Q < LIMITS.Q_Lmin[0]) {
-      Q = clamp(Q, LIMITS.Q_Lmin[0], LIMITS.Q_Lmin[1]);
+    if (Q > lim.Q_Lmin[1] || Q < lim.Q_Lmin[0]) {
+      Q = clamp(Q, lim.Q_Lmin[0], lim.Q_Lmin[1]);
       D1 = dFromArea((Q / 60000) / vf[0]);
-      if (D1 < LIMITS.D1_cm[0] || D1 > LIMITS.D1_cm[1]) {
-        warnings.push(`El corte de la columna 1 pide un caudal fuera del rango del equipo (${LIMITS.Q_Lmin[0]}–${LIMITS.Q_Lmin[1]} L/min) incluso ajustando D₁; se usa el valor más cercano posible.`);
+      if (D1 < lim.D1_cm[0] || D1 > lim.D1_cm[1]) {
+        warnings.push(`El corte de la columna 1 pide un caudal fuera del rango del equipo (${lim.Q_Lmin[0]}–${lim.Q_Lmin[1]} L/min) incluso ajustando D₁; se usa el valor más cercano posible.`);
       } else {
-        warnings.push(`Para lograr el corte con un caudal dentro de ${LIMITS.Q_Lmin[0]}–${LIMITS.Q_Lmin[1]} L/min se ajustó el diámetro de la columna 1.`);
+        warnings.push(`Para lograr el corte con un caudal dentro de ${lim.Q_Lmin[0]}–${lim.Q_Lmin[1]} L/min se ajustó el diámetro de la columna 1.`);
       }
     }
-    Q = snap(Q, LIMITS.Q_Lmin);
-    D1 = snap(dFromArea((Q / 60000) / vf[0]), LIMITS.D1_cm);
+    Q = snap(Q, lim.Q_Lmin);
+    D1 = snap(dFromArea((Q / 60000) / vf[0]), lim.D1_cm);
 
     // 3) Columna 2: diámetro que da la velocidad del segundo corte con ese mismo Q
     const D2ideal = dFromArea((Q / 60000) / vf[1]);
-    const D2 = snap(D2ideal, LIMITS.D2_cm);
-    if (D2ideal < LIMITS.D2_cm[0] || D2ideal > LIMITS.D2_cm[1]) {
-      warnings.push(`El segundo corte pide D₂ = ${D2ideal.toFixed(1)} cm, fuera del rango del equipo (${LIMITS.D2_cm[0]}–${LIMITS.D2_cm[1]} cm); se usa ${D2.toFixed(1)} cm.`);
+    const D2 = snap(D2ideal, lim.D2_cm);
+    if (D2ideal < lim.D2_cm[0] || D2ideal > lim.D2_cm[1]) {
+      warnings.push(`El segundo corte pide D₂ = ${D2ideal.toFixed(1)} cm, fuera del rango del equipo (${lim.D2_cm[0]}–${lim.D2_cm[1]} cm); se usa ${D2.toFixed(1)} cm.`);
     }
 
     // 4) Resultado real con el modelo del simulador
@@ -915,7 +955,8 @@
   /** Convierte el estado (y el sólido escaneado, si hay) en una cadena de consulta URL. */
   function encodeConfig(state, customFeed) {
     const q = new URLSearchParams();
-    for (const [k, key] of CONFIG_KEYS) q.set(k, String(Number(state[key].toFixed(2))));
+    if (state.fluid === 'air') q.set('fl', 'air');
+    for (const [k, key] of CONFIG_KEYS) q.set(k, String(Number(state[key].toFixed(state.fluid === 'air' && key === 'mu_mPas' ? 4 : 2))));
     for (const [k, key] of CONFIG_FLAGS) if (state[key]) q.set(k, '1');
     if (customFeed && customFeed.active && customFeed.diameters_um.length) {
       const arr = customFeed.diameters_um;
@@ -935,12 +976,18 @@
   function decodeConfig(search) {
     const q = new URLSearchParams(search || '');
     const state = {};
+    const air = q.get('fl') === 'air';
+    if (air) Object.assign(state, { fluid: 'air', rho_f: FLUIDS.air.rho_f, mu_mPas: FLUIDS.air.mu_mPas, Q_Lmin: FLUIDS.air.Q_default, reCorrection: true });
+    const lim = fluidOf(air ? 'air' : 'water').limits;
     for (const [k, key, lo, hi] of CONFIG_KEYS) {
       if (!q.has(k)) continue;
       const v = parseFloat(q.get(k));
-      if (Number.isFinite(v)) state[key] = clamp(v, lo, hi);
+      if (!Number.isFinite(v)) continue;
+      if (key === 'Q_Lmin') state[key] = clamp(v, lim.Q_Lmin[0], lim.Q_Lmin[1]);
+      else if (key === 'mu_mPas') state[key] = clamp(v, lim.mu_mPas[0], lim.mu_mPas[1]);
+      else state[key] = clamp(v, lo, hi);
     }
-    for (const [k, key] of CONFIG_FLAGS) if (q.has(k)) state[key] = q.get(k) === '1';
+    for (const [k, key] of CONFIG_FLAGS) if (q.has(k) || air) state[key] = q.get(k) === '1';
     let feed = null;
     if (q.has('feed')) {
       const diameters = q.get('feed').split('_').map(parseFloat)
@@ -953,7 +1000,7 @@
 
   const api = {
     encodeConfig, decodeConfig,
-    LAYOUT, VEL_SCALE, PIPE_SPEED, D_MIN_UM, D_MAX_UM, RHO_MIN, RHO_MAX, MATERIALS, MATERIAL_GROUPS, OUTLET_NAMES, DEFAULT_STATE, LIMITS, STEADY,
+    LAYOUT, VEL_SCALE, PIPE_SPEED, D_MIN_UM, D_MAX_UM, RHO_MIN, RHO_MAX, MATERIALS, MATERIAL_GROUPS, OUTLET_NAMES, DEFAULT_STATE, LIMITS, STEADY, FLUIDS, fluidPatch, limitsFor,
     particleRadius, makePath, pipePosition, buildGeometry,
     columnRadiusAt, hopperRadiusAt, columnMaxOffset, hopperMaxOffset, terminalVelocity, cutDiameter, computeModel,
     designRecipe, Simulation
