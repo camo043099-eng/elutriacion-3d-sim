@@ -736,6 +736,30 @@
       border-radius: 6px; padding: 4px 8px; font-size: 0.8rem; }
     .num-entry input:focus { outline: none; border-color: #38bdf8; }
     .num-entry input.bad { border-color: var(--warn, #f59e0b); }
+    /* ---- Calculadora ---- */
+    .calc-scroll { overflow: auto; max-height: 68vh; border: 1px solid rgba(148,163,184,.2); border-radius: 8px; }
+    .calc-table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 0.8rem; }
+    .calc-table th, .calc-table td { padding: 6px 8px; border-bottom: 1px solid rgba(148,163,184,.12); vertical-align: top; min-width: 210px; text-align: left; }
+    .calc-table th.calc-var, .calc-table td.calc-var { min-width: 250px; max-width: 280px; position: sticky; left: 0; z-index: 2;
+      background: #0f172a; color: #cbd5e1; border-right: 1px solid rgba(148,163,184,.25); }
+    .calc-table thead th { position: sticky; top: 0; z-index: 3; background: #111c33; }
+    .calc-table thead th.calc-var { z-index: 4; }
+    .calc-sec td { background: rgba(56,189,248,.10); color: #7dd3fc; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; font-size: .7rem; }
+    .calc-sec.out td { background: rgba(74,222,128,.10); color: #86efac; }
+    .calc-table input, .calc-table select, .calc-table textarea { width: 100%; box-sizing: border-box; background: rgba(15,23,42,.95);
+      color: var(--text-main); border: 1px solid rgba(148,163,184,.35); border-radius: 6px; padding: 5px 7px; font-size: .8rem; font-family: inherit; }
+    .calc-table input:focus, .calc-table textarea:focus, .calc-table select:focus { outline: none; border-color: #38bdf8; }
+    .calc-table input:disabled { opacity: .4; }
+    .calc-pair { display: flex; gap: 6px; }
+    .calc-dim { color: #64748b; font-size: .75rem; }
+    .calc-auto { color: #94a3b8; font-variant-numeric: tabular-nums; }
+    .calc-out { color: #f8fafc; font-weight: 600; white-space: pre-line; font-variant-numeric: tabular-nums; }
+    .calc-colhead { display: flex; flex-direction: column; gap: 6px; }
+    .calc-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+    .calc-actions .btn { padding: 3px 8px; font-size: .72rem; }
+    .calc-steps { margin-top: 14px; padding: 10px 14px; border: 1px solid rgba(56,189,248,.25); border-radius: 8px; background: rgba(15,23,42,.6); }
+    .calc-step { margin: 6px 0; overflow-x: auto; }
+    .calc-msg { margin-top: 8px; color: var(--warn, #f59e0b); font-size: .8rem; }
     .select-solid {
       width: 100%;
       background: rgba(15, 23, 42, 0.95);
@@ -821,6 +845,7 @@
     </div>
     <div class="camera-controls">
       <button class="btn start-btn" id="btn-run">▶ Iniciar</button>
+      <button class="btn chart-btn" id="btn-open-calc">🧮 Calculadora</button>
       <button class="btn chart-btn" id="btn-open-charts">📊 Gráficas</button>
       <button class="btn scan-btn" id="btn-open-scanner">📷 Escanear Sólido</button>
       <a href="ar.html" id="btn-ar" class="btn scan-btn" style="text-decoration: none;">🥽 Modo AR</a>
@@ -1034,6 +1059,22 @@
     <div class="eq-card"><div class="eq" id="eq-live-re"></div></div>
     <div class="eq-note" id="eq-live-note"></div>
   </aside>
+
+  <!-- CALCULADORA DE PROBLEMAS DE ELUTRIACIÓN -->
+  <div class="overlay-modal" id="calc-modal">
+    <div class="dialog-box chart-dialog">
+      <div class="dialog-header">
+        <h2>🧮 Calculadora de problemas de elutriación <span class="badge">Tabla de casos • Stokes / Schiller–Naumann</span></h2>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <button class="btn" id="btn-calc-add">➕ Agregar caso</button>
+          <button class="btn" id="btn-calc-example">📋 Cargar ejemplo</button>
+          <button class="btn" id="btn-calc-csv">⬇️ CSV</button>
+          <button class="btn" id="btn-close-calc">✕ Cerrar</button>
+        </div>
+      </div>
+      <div class="charts-body" id="calc-body"></div>
+    </div>
+  </div>
 
   <!-- =========================================================================
        MODAL 1: DASHBOARD ANALÍTICO (CURVAS DE TROMP EN VIVO)
@@ -1320,6 +1361,7 @@
 
   <!-- Motor físico (sin dependencias) -->
   <script src="js/sim.js"></script>
+  <script src="js/calc.js"></script>
 
   <!-- Three.js r128 + OrbitControls por CDN, con CDN de respaldo -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -3118,6 +3160,27 @@
     // =========================================================================
     // 5. BUCLE PRINCIPAL
     // =========================================================================
+    // Calculadora de problemas: «➡ Simular» pasa un caso al simulador 3D
+    initCalculator({
+      SIM, $, tex,
+      onSend(c, r, f, inp) {
+        const key = (c.fluid === 'air' || (c.fluid === 'custom' && f.rho_f < 100)) ? 'air' : 'water';
+        const want = { Q_Lmin: r.Q_Lmin, D1_cm: r.D_cm[0], D2_cm: r.D_cm[1], rho_p: inp.rho_p, mu_mPas: f.mu_mPas };
+        apply(SIM.fluidPatch(key));
+        apply(Object.assign({ rho_f: f.rho_f }, want));
+        $('chk-recorr').checked = sim.state.reCorrection;
+        syncSliders();
+        restartFeed();
+        const notes = [];
+        const names = { Q_Lmin: 'Q', D1_cm: 'D₁', D2_cm: 'D₂', rho_p: 'ρp', mu_mPas: 'μ' };
+        for (const k of Object.keys(want)) {
+          if (Math.abs(sim.state[k] - want[k]) > 1e-6 * Math.max(1, Math.abs(want[k]))) notes.push(`${names[k]} se acotó a ${Number(sim.state[k].toPrecision(4))} (límite del simulador).`);
+        }
+        if (inp.psi < 0.999) notes.push('La esfericidad ψ no se transfiere: en el simulador solo se aplica con un sólido escaneado.');
+        return notes;
+      }
+    });
+
     restartFeed();   // empieza sin partículas en las columnas: todas esperan en la tolva
     updateUI();
 

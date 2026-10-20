@@ -146,6 +146,16 @@ Accesos rápidos: **Diseño Base (1.5 L/min)**, **Arrastre (3.0 L/min)** y los s
 - **Densidad ampliada:** 400–19 500 kg/m³. Además de los 4 botones rápidos hay una lista de materiales (cuarzo/vidrio, arena, PET, nylon 6/6, cemento, cal, yeso, DDGS de maíz, harinas, mijo, oro, diamante, bentonita y monacita/xenotima) con su rango, fase típica y aplicación. La misma lista, un deslizador de densidad y el selector de fluido están en el escáner de cámara.
 - **Enlaces AR:** la URL incluye `fl=air` cuando el fluido es aire.
 
+## 🧮 Calculadora de problemas de elutriación
+
+Botón **🧮 Calculadora** (arriba): una tabla donde cada columna es un caso y cada fila una variable. Se escribe en las celdas de entrada y los resultados se recalculan al instante (los casos se guardan en el navegador).
+
+- **Entradas:** ρp, ψ, granulometría en masa por clases (`d inferior, d superior, % masa`), tamaños de interés, alimentación (kg/h), fluido (agua/aire/personalizado) con **temperatura** (ρf y μ calculados), D₁, D₂ y Q con selector de unidades.
+- **Modo directo:** das Q y obtiene A, v_f, d_pc (equivalente y real = d_pc/√ψ), Re_p, régimen, relación de cortes frente a D₂/D₁, Re de columna, v_t y destino de cada tamaño, fracciones y flujos másicos por salida.
+- **Modo diseño:** das los cortes que pide el problema y fijas D₁ o D₂; calcula Q requerido y el otro diámetro (con Schiller–Naumann si hace falta).
+- **📐 Procedimiento:** paso a paso con las ecuaciones sustituidas. **⬇️ CSV** exporta la tabla; **➡ Simular** envía el caso al simulador 3D.
+- Las fórmulas son las mismas del motor (`solveProblem` en `js/sim.js`) y tienen pruebas automáticas. Hipótesis: modelo ideal (sin perfil parabólico ni dispersión), d_eq = d·√ψ y masa repartida uniformemente en cada clase de tamaño.
+
 ## 📊 Resultados en vivo
 
 * **Telemetría hidrodinámica:** $v_{f1}$, $v_{f2}$, $d_{pc1}$, $d_{pc2}$ y $Re_p$ de cada columna, con el régimen de flujo (Stokes o intermedio).

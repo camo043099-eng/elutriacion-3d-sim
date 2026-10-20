@@ -1077,6 +1077,7 @@
       };
     });
 
+    if (!corr && out.sizes.some(x => x.Re_p > 1)) w.push('Algún tamaño de interés tiene Re_p > 1: su v_t con Stokes es sobrestimada (usa la corrección de Schiller–Naumann).');
     // Granulometría en masa (clases de tamaño real) → fracciones y flujos másicos por salida
     const psd = (inp.psd || []).filter(c => c.hi > c.lo && c.pct > 0);
     if (psd.length) {
