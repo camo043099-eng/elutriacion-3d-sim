@@ -963,6 +963,140 @@
   }
 
   // ---------------------------------------------------------------------------
+  // 6b. CALCULADORA DE PROBLEMAS (sin simulación de partículas)
+  // ---------------------------------------------------------------------------
+  const WATER_TABLE = [   // T (°C), ρ (kg/m³), μ (mPa·s) — agua líquida a 1 atm
+    [0, 999.8, 1.792], [5, 1000.0, 1.519], [10, 999.7, 1.307], [15, 999.1, 1.138], [20, 998.2, 1.002],
+    [25, 997.0, 0.890], [30, 995.7, 0.797], [35, 994.1, 0.719], [40, 992.2, 0.653], [50, 988.1, 0.547],
+    [60, 983.2, 0.467], [70, 977.8, 0.404], [80, 971.8, 0.355], [90, 965.3, 0.315], [100, 958.4, 0.282]
+  ];
+
+  /** Propiedades del fluido a una temperatura: agua (tabla interpolada) o aire a 1 atm (gas ideal + Sutherland). */
+  function fluidProps(fluid, T_C) {
+    const T = Number.isFinite(T_C) ? T_C : 20;
+    if (fluid === 'air') {
+      const TK = T + 273.15;
+      const rho = 101325 / (287.05 * TK);
+      const mu = 1.716e-5 * Math.pow(TK / 273.15, 1.5) * (273.15 + 110.4) / (TK + 110.4);
+      return { rho_f: rho, mu_mPas: mu * 1e3 };
+    }
+    const t = clamp(T, 0, 100);
+    let i = 1;
+    while (i < WATER_TABLE.length - 1 && WATER_TABLE[i][0] < t) i++;
+    const a = WATER_TABLE[i - 1], b = WATER_TABLE[i], k = (t - a[0]) / (b[0] - a[0]);
+    return { rho_f: lerp(a[1], b[1], k), mu_mPas: lerp(a[2], b[2], k) };
+  }
+
+  /**
+   * Resuelve un problema de elutriación en dos columnas en serie (ecuaciones cerradas, modelo ideal).
+   * Convención de forma: el corte se calcula con el diámetro equivalente d_eq = d·√ψ (igual que el simulador).
+   *
+   * @param {object} inp {rho_f, mu_mPas, rho_p, psi, D1_cm, D2_cm, Q_Lmin, g, reCorrection:true|false|'auto',
+   *   mode:'direct'|'design', dpc1_um, dpc2_um (reales, solo diseño), fix:'D1'|'D2' (diseño),
+   *   sizes_um:[], psd:[{lo,hi,pct}], feed_kgh}
+   */
+  function solveProblem(inp) {
+    const w = [];
+    const g = inp.g > 0 ? inp.g : 9.81;
+    const psi = clamp(inp.psi > 0 ? inp.psi : 1, 0.4, 1);
+    const sq = Math.sqrt(psi);
+    const st = { rho_p: inp.rho_p, rho_f: inp.rho_f, mu_mPas: inp.mu_mPas, g, sphericity: 1, reCorrection: false };
+    const mu = inp.mu_mPas * 1e-3;
+    const out = { warnings: w, psi, g, rho_f: inp.rho_f, mu_mPas: inp.mu_mPas, rho_p: inp.rho_p };
+    if (!(inp.rho_p > 0) || !(inp.rho_f > 0) || !(inp.mu_mPas > 0)) { out.error = 'Faltan ρp, ρf o μ.'; return out; }
+    out.dRho = inp.rho_p - inp.rho_f;
+    out.floats = out.dRho <= 0;
+    if (out.floats) w.push('ρp ≤ ρf: el sólido flota y todo sale por el rebose; no hay diámetro de corte.');
+
+    const mode = inp.mode === 'design' ? 'design' : 'direct';
+    out.mode = mode;
+    const corrMode = inp.reCorrection === undefined ? 'auto' : inp.reCorrection;
+    const vtOf = (d_eq_um, corr) => { st.reCorrection = corr; return terminalVelocity(d_eq_um * 1e-6, st); };
+    const cutOf = (vf, corr) => { st.reCorrection = corr; return cutDiameter(vf, st) * 1e6; };
+
+    let D1 = inp.D1_cm / 100, D2 = inp.D2_cm / 100, Q = inp.Q_Lmin / 60000;   // m, m, m³/s
+    let corr = corrMode === 'auto' ? false : !!corrMode;
+
+    if (mode === 'design') {
+      if (out.floats) { out.error = 'Con ρp ≤ ρf no se puede diseñar un corte.'; return out; }
+      const e1 = inp.dpc1_um * sq, e2 = inp.dpc2_um * sq;
+      if (!(inp.dpc1_um > 0) || !(inp.dpc2_um > 0)) { out.error = 'Indica los dos diámetros de corte objetivo.'; return out; }
+      if (inp.dpc1_um <= inp.dpc2_um) w.push('El corte de la columna 1 debe ser mayor que el de la columna 2.');
+      if (corrMode === 'auto') {   // se activa la corrección si algún Re_p de diseño supera 1
+        const v1 = vtOf(e1, false), v2 = vtOf(e2, false);
+        corr = (st.rho_f * v1 * e1 * 1e-6 / mu > 1) || (st.rho_f * v2 * e2 * 1e-6 / mu > 1);
+      }
+      const vf1 = Math.abs(vtOf(e1, corr)), vf2 = Math.abs(vtOf(e2, corr));
+      const fix = inp.fix === 'D2' ? 'D2' : 'D1';
+      if (fix === 'D1') {
+        const A1 = Math.PI * D1 * D1 / 4;
+        Q = vf1 * A1;
+        D2 = Math.sqrt(4 * Q / (Math.PI * vf2));
+      } else {
+        const A2 = Math.PI * D2 * D2 / 4;
+        Q = vf2 * A2;
+        D1 = Math.sqrt(4 * Q / (Math.PI * vf1));
+      }
+      out.design = { fix, vf_req_mms: [vf1 * 1e3, vf2 * 1e3], Q_req_Lmin: Q * 60000, D1_req_cm: D1 * 100, D2_req_cm: D2 * 100 };
+    }
+
+    const A = [Math.PI * D1 * D1 / 4, Math.PI * D2 * D2 / 4];
+    const vf = [Q / A[0], Q / A[1]];
+    if (!(vf[0] > 0)) { out.error = 'El caudal y los diámetros deben ser mayores que cero.'; return out; }
+    if (corrMode === 'auto' && mode === 'direct' && !out.floats) {
+      const c0 = cutOf(vf[0], false), c1 = cutOf(vf[1], false);
+      corr = (st.rho_f * vf[0] * c0 * 1e-6 / mu > 1) || (st.rho_f * vf[1] * c1 * 1e-6 / mu > 1);
+    }
+    out.reCorrection = corr;
+    out.Q_m3s = Q; out.Q_Lmin = Q * 60000;
+    out.D_cm = [D1 * 100, D2 * 100]; out.A_m2 = A; out.vf_mms = vf.map(v => v * 1e3);
+    out.Re_c = vf.map((v, i) => st.rho_f * v * [D1, D2][i] / mu);
+
+    const eq = out.floats ? [NaN, NaN] : [cutOf(vf[0], corr), cutOf(vf[1], corr)];
+    out.dpc_eq_um = eq;
+    out.dpc_real_um = eq.map(d => d / sq);
+    out.Re_p = eq.map((d, i) => out.floats ? NaN : st.rho_f * vf[i] * d * 1e-6 / mu);
+    out.regime = out.Re_p.map(r => !Number.isFinite(r) ? '—' : (r <= 1 ? 'Stokes' : (corr ? 'Schiller–Naumann' : 'fuera de Stokes')));
+    out.ratio_cuts = eq[0] / eq[1];
+    out.ratio_D = D2 / D1;
+    if (!out.floats && out.Re_p.some(r => r > 1) && !corr) w.push('Re_p > 1 sin corrección: Stokes sobrestima v_t; activa Schiller–Naumann.');
+    if (!out.floats && corr && Math.abs(out.ratio_cuts / out.ratio_D - 1) > 0.02) w.push('Con Schiller–Naumann la relación d_pc1/d_pc2 ya no es igual a D₂/D₁.');
+    if (!out.floats && !(eq[0] > eq[1])) w.push('El corte de la columna 1 no es mayor que el de la columna 2 (D₂ debe ser mayor que D₁).');
+    // factor de corrección por esfericidad: v_t,ψ = ψ·v_t,esfera (Stokes) ⇒ el corte real sube en 1/√ψ
+    out.fpsi = 1 / sq;
+
+    // Tamaños de interés (diámetros reales)
+    out.sizes = (inp.sizes_um || []).filter(d => d > 0).map(d => {
+      const de = d * sq;
+      const vt = out.floats ? vtOf(de, corr) : Math.abs(vtOf(de, corr));
+      const outlet = out.floats ? 2 : (de >= eq[0] ? 0 : (de >= eq[1] ? 1 : 2));
+      return {
+        d, d_eq: de, vt_mms: vt * 1e3,
+        vnet1_mms: (vf[0] - vt) * 1e3, vnet2_mms: (vf[1] - vt) * 1e3,   // >0 asciende, <0 sedimenta
+        Re_p: st.rho_f * Math.abs(vt) * de * 1e-6 / mu, outlet
+      };
+    });
+
+    // Granulometría en masa (clases de tamaño real) → fracciones y flujos másicos por salida
+    const psd = (inp.psd || []).filter(c => c.hi > c.lo && c.pct > 0);
+    if (psd.length) {
+      const tot = psd.reduce((a, c) => a + c.pct, 0);
+      if (Math.abs(tot - 100) > 0.5) w.push(`Las clases suman ${tot.toFixed(1)} % en masa; se normalizaron a 100 %.`);
+      const f = [0, 0, 0];
+      for (const c of psd) {
+        const share = c.pct / tot, lo = c.lo * sq, hi = c.hi * sq;
+        // se supone masa repartida uniformemente en el diámetro dentro de cada clase
+        const above = cut => out.floats ? 0 : clamp((hi - cut) / (hi - lo), 0, 1);
+        const a1 = above(eq[0]), a2 = above(eq[1]);
+        f[0] += share * a1; f[1] += share * (a2 - a1); f[2] += share * (1 - a2);
+      }
+      out.fractions = f.map(x => x * 100);
+      if (inp.feed_kgh > 0) out.mdot_kgh = f.map(x => x * inp.feed_kgh);
+    }
+    return out;
+  }
+
+  // ---------------------------------------------------------------------------
   // 7. COMPARTIR CONFIGURACIÓN ENTRE PÁGINAS (index.html ⇄ ar.html) POR LA URL
   // ---------------------------------------------------------------------------
   const CONFIG_KEYS = [
@@ -1024,7 +1158,7 @@
 
   const api = {
     encodeConfig, decodeConfig,
-    LAYOUT, VEL_SCALE, PIPE_SPEED, D_MIN_UM, D_MAX_UM, RHO_MIN, RHO_MAX, MATERIALS, MATERIAL_GROUPS, OUTLET_NAMES, DEFAULT_STATE, LIMITS, STEADY, FLUIDS, fluidPatch, limitsFor,
+    LAYOUT, VEL_SCALE, PIPE_SPEED, D_MIN_UM, D_MAX_UM, RHO_MIN, RHO_MAX, MATERIALS, MATERIAL_GROUPS, OUTLET_NAMES, DEFAULT_STATE, LIMITS, STEADY, FLUIDS, fluidPatch, limitsFor, solveProblem, fluidProps,
     particleRadius, makePath, pipePosition, buildGeometry,
     columnRadiusAt, hopperRadiusAt, columnMaxOffset, hopperMaxOffset, terminalVelocity, cutDiameter, computeModel,
     designRecipe, Simulation

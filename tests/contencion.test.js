@@ -413,5 +413,31 @@ check('Los eventos guardan el diámetro (para la curva de Tromp) y la matriz se 
   assert.ok(real.some(e => e.cls !== e.outlet), 'con perfil parabólico debe haber errores de clasificación');
 });
 
+check('Calculadora: coincide con el motor del simulador (cortes, v_f, Re) y las fracciones suman 100 %', () => {
+  const base = Object.assign({}, S.DEFAULT_STATE, { Q_Lmin: 1.5 });
+  const m = new S.Simulation({ rng: mulberry32(7) }); m.setParams(base);
+  const r = S.solveProblem({ rho_f: base.rho_f, mu_mPas: base.mu_mPas, rho_p: base.rho_p, psi: 1, D1_cm: base.D1_cm, D2_cm: base.D2_cm,
+    Q_Lmin: 1.5, reCorrection: false, sizes_um: [30, 60, 120], psd: [{ lo: 15, hi: 50, pct: 30 }, { lo: 50, hi: 100, pct: 40 }, { lo: 100, hi: 145, pct: 30 }], feed_kgh: 10 });
+  for (let c = 0; c < 2; c++) {
+    assert.ok(Math.abs(r.dpc_eq_um[c] - m.model.dpc_um[c]) < 1e-6);
+    assert.ok(Math.abs(r.vf_mms[c] / 1000 - m.model.vf[c]) < 1e-12);
+  }
+  assert.deepStrictEqual(r.sizes.map(x => x.outlet), [2, 1, 0]);
+  assert.ok(Math.abs(r.fractions.reduce((a, b) => a + b, 0) - 100) < 1e-9);
+  assert.ok(Math.abs(r.mdot_kgh.reduce((a, b) => a + b, 0) - 10) < 1e-9);
+});
+check('Calculadora: el modo diseño devuelve Q y D2 que reproducen los cortes pedidos (con esfericidad y con aire)', () => {
+  for (const [rf, mu, rp, psi] of [[998.2, 1.002, 2650, 0.8], [1.204, 0.0181, 2650, 1]]) {
+    const d = S.solveProblem({ rho_f: rf, mu_mPas: mu, rho_p: rp, psi, D1_cm: 5.95, D2_cm: 11.9, mode: 'design', dpc1_um: 100, dpc2_um: 50, fix: 'D1' });
+    const back = S.solveProblem({ rho_f: rf, mu_mPas: mu, rho_p: rp, psi, D1_cm: d.design.D1_req_cm, D2_cm: d.design.D2_req_cm, Q_Lmin: d.design.Q_req_Lmin, reCorrection: d.reCorrection });
+    assert.ok(Math.abs(back.dpc_real_um[0] - 100) < 0.01 && Math.abs(back.dpc_real_um[1] - 50) < 0.01, JSON.stringify(back.dpc_real_um));
+  }
+});
+check('Calculadora: propiedades del agua y del aire a temperatura', () => {
+  const w = S.fluidProps('water', 20), a = S.fluidProps('air', 20);
+  assert.ok(Math.abs(w.rho_f - 998.2) < 0.1 && Math.abs(w.mu_mPas - 1.002) < 0.001);
+  assert.ok(Math.abs(a.rho_f - 1.204) < 0.01 && Math.abs(a.mu_mPas - 0.0181) < 0.0003);
+});
+
 console.log(failures ? `\n${failures} prueba(s) fallaron\n` : '\nTodas las pruebas pasaron\n');
 process.exit(failures ? 1 : 0);
