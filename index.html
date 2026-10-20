@@ -731,6 +731,11 @@
     .material-hint b { color: #f8fafc; }
     .material-hint .mh-warn { color: var(--warn); }
 
+    .num-entry { display: flex; align-items: center; gap: 6px; margin-top: 5px; font-size: 0.75rem; color: var(--text-muted, #94a3b8); }
+    .num-entry input { width: 92px; background: rgba(15,23,42,.95); color: var(--text-main); border: 1px solid rgba(148,163,184,.35);
+      border-radius: 6px; padding: 4px 8px; font-size: 0.8rem; }
+    .num-entry input:focus { outline: none; border-color: #38bdf8; }
+    .num-entry input.bad { border-color: var(--warn, #f59e0b); }
     .select-solid {
       width: 100%;
       background: rgba(15, 23, 42, 0.95);
@@ -1468,8 +1473,36 @@
       return { txt: `<span class="msym">Re<sub>p</sub></span> = ${re.toFixed(2)} · régimen intermedio`, warn: true };
     }
 
+    // Entrada numérica junto a cada deslizador: se escribe el valor exacto y se acota al rango vigente
+    const numEntries = [];
+    function addNumEntry(sliderId, unit, decimals, onSet, getVal) {
+      const sl = $(sliderId), box = document.createElement('div');
+      box.className = 'num-entry';
+      box.innerHTML = `<span>Valor exacto:</span><input type="number" inputmode="decimal" aria-label="Valor exacto (${unit})"><span>${unit}</span>`;
+      const inp = box.querySelector('input');
+      sl.insertAdjacentElement('afterend', box);
+      const refresh = () => {
+        inp.min = sl.min; inp.max = sl.max; inp.step = 'any';
+        if (document.activeElement !== inp) { inp.value = Number(getVal().toFixed(decimals)); inp.classList.remove('bad'); }
+      };
+      const commit = () => {
+        const v = parseFloat(inp.value.replace(',', '.'));
+        if (!Number.isFinite(v)) { inp.classList.add('bad'); return; }
+        const lo = parseFloat(sl.min), hi = parseFloat(sl.max);
+        inp.classList.toggle('bad', v < lo || v > hi);   // se avisa, pero se acota
+        onSet(Math.min(hi, Math.max(lo, v)));
+      };
+      inp.addEventListener('keydown', e => { if (e.key === 'Enter') { commit(); inp.blur(); } });
+      inp.addEventListener('change', commit);
+      inp.addEventListener('blur', () => { inp.classList.remove('bad'); refresh(); });
+      numEntries.push(refresh);
+      refresh();
+    }
+    const refreshNumEntries = () => numEntries.forEach(f => f());
+
     function updateUI() {
       const s = sim.state, m = sim.model;
+      refreshNumEntries();
       $('val-flow').textContent = `${s.Q_Lmin.toFixed(2)} L/min`;
       $('val-density').textContent = `${s.rho_p} kg/m³`;
       $('val-visc').textContent = `${s.mu_mPas.toFixed(s.fluid === 'air' ? 4 : 2)} mPa·s`;
@@ -1611,6 +1644,11 @@
     sliderMap.forEach(([id, key]) => {
       $(id).addEventListener('input', e => apply({ [key]: parseFloat(e.target.value) }));
     });
+
+    addNumEntry('slider-flow', 'L/min', 2, v => { apply({ Q_Lmin: v }); syncSliders(); }, () => sim.state.Q_Lmin);
+    addNumEntry('slider-density', 'kg/m³', 0, v => { apply({ rho_p: Math.round(v) }); syncSliders(); }, () => sim.state.rho_p);
+    addNumEntry('slider-visc', 'mPa·s', 4, v => { apply({ mu_mPas: v }); syncSliders(); }, () => sim.state.mu_mPas);
+    refreshNumEntries();
 
     $('chk-parabolic').addEventListener('change', e => apply({ parabolic: e.target.checked }));
     $('chk-dispersion').addEventListener('change', e => apply({ dispersion: e.target.checked }));
@@ -2590,6 +2628,7 @@
     function setScanRho(rho) {
       rho = Math.max(SIM.RHO_MIN, Math.min(SIM.RHO_MAX, Math.round(rho)));
       scanRhoSlider.value = rho;
+      if (typeof scanNumInp !== 'undefined' && document.activeElement !== scanNumInp) scanNumInp.value = rho;
       $('val-scan-rho').textContent = `${rho} kg/m³`;
       scanRhoSel.querySelectorAll('option[data-custom]').forEach(o => o.remove());
       if (![...scanRhoSel.options].some(o => Number(o.value) === rho)) {
@@ -2602,6 +2641,20 @@
       scanRhoSel.value = String(rho);
       $('scan-material-hint').innerHTML = materialHint(rho, SIM.FLUIDS[scanFluid].rho_f);
     }
+    const scanNum = document.createElement('div');
+    scanNum.className = 'num-entry';
+    scanNum.innerHTML = '<span>Valor exacto:</span><input type="number" inputmode="decimal" aria-label="Densidad exacta (kg/m³)" min="400" max="19500" step="any"><span>kg/m³</span>';
+    scanRhoSlider.insertAdjacentElement('afterend', scanNum);
+    const scanNumInp = scanNum.querySelector('input');
+    const commitScanNum = () => {
+      const v = parseFloat(scanNumInp.value.replace(',', '.'));
+      if (!Number.isFinite(v)) { scanNumInp.classList.add('bad'); return; }
+      scanNumInp.classList.toggle('bad', v < SIM.RHO_MIN || v > SIM.RHO_MAX);
+      setScanRho(v); analyzeParticlesFrame();
+    };
+    scanNumInp.addEventListener('keydown', e => { if (e.key === 'Enter') { commitScanNum(); scanNumInp.blur(); } });
+    scanNumInp.addEventListener('change', commitScanNum);
+    scanNumInp.addEventListener('blur', () => { scanNumInp.classList.remove('bad'); scanNumInp.value = scanRhoSlider.value; });
     scanRhoSel.addEventListener('change', () => setScanRho(parseFloat(scanRhoSel.value)));
     scanRhoSlider.addEventListener('input', () => setScanRho(parseFloat(scanRhoSlider.value)));
     setScanRho(parseFloat(scanRhoSlider.value));
