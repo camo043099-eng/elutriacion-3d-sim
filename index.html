@@ -1514,6 +1514,7 @@
       $('val-density').textContent = `${s.rho_p} kg/m³`;
       $('val-visc').textContent = `${s.mu_mPas.toFixed(s.fluid === 'air' ? 4 : 2)} mPa·s`;
       $('lbl-flow').textContent = s.fluid === 'air' ? 'Caudal de aire' : 'Caudal de agua';
+      $('label-water').textContent = s.fluid === 'air' ? 'Entrada de aire' : 'Entrada de agua';
       $('val-d1').textContent = `${s.D1_cm.toFixed(2)} cm`;
       $('val-d2').textContent = `${s.D2_cm.toFixed(2)} cm`;
 
@@ -2520,7 +2521,7 @@
       if (N >= 5) {
         if (rawDRho <= 0) {
           $('scan-recipe-box').innerHTML = `
-            <strong>Diagnóstico Hidrodinámico (<span class="msym">&rho;<sub>p</sub></span> = ${rho_p} kg/m³ &le; Agua):</strong><br/>
+            <strong>Diagnóstico Hidrodinámico (<span class="msym">&rho;<sub>p</sub></span> = ${rho_p} kg/m³ &le; ${scanFluid === 'air' ? 'Aire' : 'Agua'}):</strong><br/>
             • Como el sólido escaneado tiene menor densidad que el ${scanFluid === 'air' ? 'aire' : 'agua'} (<span class="msym">&Delta;&rho;</span> = ${rawDRho} kg/m³), experimenta <b>flotación natural</b> y el 100% ascenderá al tanque de rebose.<br/>
             • Para separar estas fracciones (<span class="msym">d<sub>50</sub></span> = <b>${d50.toFixed(1)} µm</b>, <span class="msym">&psi;</span> = <b>${meanPsi.toFixed(2)}</b>) se requiere elutriación inversa (flujo descendente) o un fluido de menor densidad.
           `;
