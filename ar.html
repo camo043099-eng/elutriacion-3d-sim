@@ -369,7 +369,7 @@
 
           <div class="control-row">
             <div class="control-lbl">
-              <span>Caudal de agua <span class="msym">Q</span></span>
+              <span>Caudal de fluido <span class="msym">Q</span></span>
               <b id="lbl-q">—</b>
             </div>
             <input type="range" id="ar-slider-q" min="0.50" max="4.00" step="0.05" value="1.50" />
@@ -537,6 +537,8 @@
 
     function syncControls() {
       const s = sim.state;
+      const lim = SIM.limitsFor(s.fluid);
+      [['ar-slider-q', lim.Q_Lmin], ['ar-slider-mu', lim.mu_mPas]].forEach(([id, l]) => { $(id).min = l[0]; $(id).max = l[1]; $(id).step = l[2]; });
       $('ar-slider-q').value = s.Q_Lmin;
       $('ar-slider-rho').value = s.rho_p;
       $('ar-slider-mu').value = s.mu_mPas;
@@ -551,7 +553,7 @@
       const s = sim.state, m = sim.model;
       $('lbl-q').textContent = `${s.Q_Lmin.toFixed(2)} L/min`;
       $('lbl-rho').textContent = `${s.rho_p} kg/m³`;
-      $('lbl-mu').textContent = `${s.mu_mPas.toFixed(2)} mPa·s`;
+      $('lbl-mu').textContent = `${s.mu_mPas.toFixed(s.fluid === 'air' ? 4 : 2)} mPa·s`;
       $('lbl-d1').textContent = `${s.D1_cm.toFixed(2)} cm`;
       $('lbl-d2').textContent = `${s.D2_cm.toFixed(2)} cm`;
 
