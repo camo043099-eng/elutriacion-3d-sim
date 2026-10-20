@@ -1011,6 +1011,7 @@
     const g = inp.g > 0 ? inp.g : 9.81;
     const psi = clamp(inp.psi > 0 ? inp.psi : 1, 0.4, 1);
     const sq = Math.sqrt(psi);
+    if (inp.psi > 0 && (inp.psi < 0.4 || inp.psi > 1)) w.push(`La esfericidad ψ debe estar entre 0.40 y 1.00; se usó ${psi}.`);
     const st = { rho_p: inp.rho_p, rho_f: inp.rho_f, mu_mPas: inp.mu_mPas, g, sphericity: 1, reCorrection: false };
     const mu = inp.mu_mPas * 1e-3;
     const out = { warnings: w, psi, g, rho_f: inp.rho_f, mu_mPas: inp.mu_mPas, rho_p: inp.rho_p };
@@ -1072,7 +1073,7 @@
     out.ratio_D = D2 / D1;
     if (!out.floats && out.Re_p.some(r => r > 1) && !corr) w.push('Re_p > 1 sin corrección: Stokes sobrestima v_t; activa Schiller–Naumann.');
     if (!out.floats && corr && Math.abs(out.ratio_cuts / out.ratio_D - 1) > 0.02) w.push('Con Schiller–Naumann la relación d_pc1/d_pc2 ya no es igual a D₂/D₁.');
-    if (!out.floats && !(eq[0] > eq[1])) w.push('El corte de la columna 1 no es mayor que el de la columna 2 (D₂ debe ser mayor que D₁).');
+    if (!out.floats && mode === 'direct' && !(eq[0] > eq[1])) w.push('El corte de la columna 1 no es mayor que el de la columna 2 (D₂ debe ser mayor que D₁).');
     // factor de corrección por esfericidad: v_t,ψ = ψ·v_t,esfera (Stokes) ⇒ el corte real sube en 1/√ψ
     out.fpsi = 1 / sq;
 

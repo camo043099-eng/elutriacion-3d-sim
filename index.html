@@ -751,6 +751,11 @@
     .calc-table input:focus, .calc-table textarea:focus, .calc-table select:focus { outline: none; border-color: #38bdf8; }
     .calc-table input:disabled { opacity: .4; }
     .calc-pair { display: flex; gap: 6px; }
+    @media (max-width: 700px) {
+      .calc-table th, .calc-table td { min-width: 170px; padding: 5px 6px; }
+      .calc-table th.calc-var, .calc-table td.calc-var { min-width: 120px; max-width: 130px; font-size: .72rem; }
+      .calc-scroll { max-height: 60vh; }
+    }
     .calc-dim { color: #64748b; font-size: .75rem; }
     .calc-auto { color: #94a3b8; font-variant-numeric: tabular-nums; }
     .calc-out { color: #f8fafc; font-weight: 600; white-space: pre-line; font-variant-numeric: tabular-nums; }
@@ -1074,6 +1079,7 @@
       <div class="dialog-header">
         <h2>🧮 Calculadora de problemas de elutriación <span class="badge">Tabla de casos • Stokes / Schiller–Naumann</span></h2>
         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <button class="btn" id="btn-calc-pull" title="Crea un caso con la configuración actual del simulador">⬅ Traer del simulador</button>
           <button class="btn" id="btn-calc-add">➕ Agregar caso</button>
           <button class="btn" id="btn-calc-example">📋 Cargar ejemplo</button>
           <button class="btn" id="btn-calc-csv">⬇️ CSV</button>
@@ -3190,6 +3196,15 @@
     // Calculadora de problemas: «➡ Simular» pasa un caso al simulador 3D
     initCalculator({
       SIM, $, tex,
+      getSimCase() {
+        const st = sim.state;
+        const sizes = scannedSolid.active ? [scannedSolid.d10, scannedSolid.d50, scannedSolid.d90].map(v => String(Number(v.toFixed(1)))).join(', ') : '';
+        return {
+          name: 'Simulador', fluid: 'custom', rho_f: String(Number(st.rho_f.toPrecision(5))), mu: String(Number(st.mu_mPas.toPrecision(5))),
+          rho_p: String(st.rho_p), psi: String(Number((st.psi || 1).toFixed(3))), D1: String(st.D1_cm), D2: String(st.D2_cm), dU: 'cm',
+          Q: String(st.Q_Lmin), qU: 'L/min', mode: 'direct', corr: st.reCorrection ? 'yes' : 'no', sizes
+        };
+      },
       onSend(c, r, f, inp) {
         const key = (c.fluid === 'air' || (c.fluid === 'custom' && f.rho_f < 100)) ? 'air' : 'water';
         const want = { Q_Lmin: r.Q_Lmin, D1_cm: r.D_cm[0], D2_cm: r.D_cm[1], rho_p: inp.rho_p, mu_mPas: f.mu_mPas, psi: r.psi, reCorrection: !!r.reCorrection };

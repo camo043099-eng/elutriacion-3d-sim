@@ -14,6 +14,9 @@
     mode: 'direct', dpc1: '100', dpc2: '50', fix: 'D1', corr: 'auto'
   }, over || {});
 
+  const esc = v => String(v === undefined || v === null ? '' : v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const CASE_KEYS = Object.keys(newCase(1));
+  const clean = c => { const o = newCase(1); for (const k of CASE_KEYS) if (c && typeof c[k] === 'string') o[k] = c[k]; return o; };
   const num = v => { const x = parseFloat(String(v).replace(',', '.')); return Number.isFinite(x) ? x : NaN; };
   const fmt = (x, n = 4) => {
     if (x === undefined || x === null || !Number.isFinite(x)) return '—';
@@ -28,8 +31,8 @@
     const modal = $('calc-modal'), body = $('calc-body');
     let cases, stepsFor = 0;
     try { cases = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); } catch (e) { cases = null; }
-    if (!Array.isArray(cases) || !cases.length) cases = [newCase(1)];
-    const save = () => { try { localStorage.setItem(STORE_KEY, JSON.stringify(cases)); } catch (e) { /* sin efecto */ } };
+    cases = Array.isArray(cases) && cases.length ? cases.map(clean) : [newCase(1)];
+    const save = () => { try { localStorage.setItem(STORE_KEY, JSON.stringify(cases.map(clean))); } catch (e) { /* sin efecto */ } };
 
     // ---------------------------------------------------------------- cálculo
     function fluidOf(c) {
@@ -55,7 +58,12 @@
     const solve = c => {
       const inp = toInput(c);
       if (c.mode === 'design') inp.Q_Lmin = 1;               // no se usa: se calcula
-      if (![inp.D1_cm, inp.D2_cm].every(x => x > 0) || !(inp.rho_p > 0)) return { error: 'Completa ρp, D₁ y D₂.', warnings: [] };
+      if (!(inp.rho_p > 0)) return { error: 'Completa la densidad del sólido ρp.', warnings: [] };
+      if (c.mode === 'design') {
+        const fixed = c.fix === 'D2' ? inp.D2_cm : inp.D1_cm;
+        if (!(fixed > 0)) return { error: `Indica ${c.fix === 'D2' ? 'D₂' : 'D₁'} (el diámetro que se fija).`, warnings: [] };
+        if (c.fix === 'D2') inp.D1_cm = 1; else inp.D2_cm = 1;   // el otro se calcula
+      } else if (![inp.D1_cm, inp.D2_cm].every(x => x > 0)) return { error: 'Completa D₁ y D₂.', warnings: [] };
       if (c.mode !== 'design' && !(inp.Q_Lmin > 0)) return { error: 'Indica el caudal Q.', warnings: [] };
       return SIM.solveProblem(inp);
     };
@@ -102,21 +110,29 @@
       ['Avisos', r => r.error ? '⚠ ' + r.error : ((r.warnings || []).join('\n') || 'Sin avisos')]
     ];
 
-    const inp = (i, key, ph, extra) => `<input type="text" inputmode="decimal" data-case="${i}" data-key="${key}" value="${cases[i][key]}" placeholder="${ph || ''}" ${extra || ''}>`;
+    const MATERIAL_OPTS = [['500', 'Biomasa (500)'], ['2650', 'Cuarzo (2650)'], ['4500', 'Barita (4500)'], ['7500', 'Galena (7500)']]
+      .concat((SIM.MATERIALS || []).map(m => [String(m.rho), `${m.name} (${m.rho})`]));
+    const inp = (i, key, ph, extra) => `<input type="text" inputmode="decimal" data-case="${i}" data-key="${key}" value="${esc(cases[i][key])}" placeholder="${ph || ''}" ${extra || ''}>`;
     const sel = (i, key, opts) => `<select data-case="${i}" data-key="${key}" data-struct="1">${opts.map(([v, t]) => `<option value="${v}" ${cases[i][key] === v ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
 
     function inputRows() {
       const R = [];
       const row = (label, fn) => R.push([label, fn]);
       R.push(['Datos de entrada', null]);
-      row('Nombre del caso', i => `<input type="text" data-case="${i}" data-key="name" value="${cases[i].name}">`);
+      row('Nombre del caso', i => `<input type="text" data-case="${i}" data-key="name" value="${esc(cases[i].name)}">`);
       row('Modo de cálculo', i => sel(i, 'mode', [['direct', 'Directo (doy Q)'], ['design', 'Diseño (doy los cortes)']]));
       R.push(['Sólido', null]);
+      row('Material (llena ρp)', i => {
+        const rho = num(cases[i].rho_p);
+        const opts = MATERIAL_OPTS.map(([v, t]) => `<option value="${v}" ${Number(v) === rho ? 'selected' : ''}>${t}</option>`).join('');
+        const known = MATERIAL_OPTS.some(([v]) => Number(v) === rho);
+        return `<select data-case="${i}" data-key="__mat" data-struct="1"><option value="" ${known ? '' : 'selected'}>Personalizado</option>${opts}</select>`;
+      });
       row('Densidad del sólido ρp (kg/m³)', i => inp(i, 'rho_p'));
       row('Esfericidad ψ (0.40–1.00)', i => inp(i, 'psi'));
       row('Alimentación (kg/h, opcional)', i => inp(i, 'feed', 'kg/h'));
       row('Granulometría en masa: una clase por línea «d inferior, d superior, % masa» (µm)', i =>
-        `<textarea rows="4" data-case="${i}" data-key="psd" placeholder="15-50 30&#10;50-100 40&#10;100-145 30">${cases[i].psd}</textarea>`);
+        `<textarea rows="4" data-case="${i}" data-key="psd" placeholder="15-50 30&#10;50-100 40&#10;100-145 30">${esc(cases[i].psd)}</textarea>`);
       row('Tamaños de interés (µm, separados por coma)', i => inp(i, 'sizes', '30, 60, 120'));
       R.push(['Fluido', null]);
       row('Fluido', i => sel(i, 'fluid', Object.entries(FLUID_NAMES)));
@@ -140,7 +156,7 @@
       const act = document.activeElement;
       const focus = act && act.dataset && act.dataset.key ? { c: act.dataset.case, k: act.dataset.key } : null;
       const head = cases.map((c, i) => `<th>
-        <div class="calc-colhead"><b>${c.name || 'Caso ' + (i + 1)}</b>
+        <div class="calc-colhead"><b>${esc(c.name || 'Caso ' + (i + 1))}</b>
         <span class="calc-actions">
           <button class="btn" data-act="steps" data-case="${i}" title="Ver el procedimiento con ecuaciones">📐</button>
           <button class="btn" data-act="send" data-case="${i}" title="Enviar este caso al simulador 3D">➡ Simular</button>
@@ -210,7 +226,7 @@
       L.push(String.raw`Re_p=\dfrac{\rho_f\,v_f\,d_{pc}}{\mu}\;\Rightarrow\; Re_{p1}=${n(r.Re_p[0])},\; Re_{p2}=${n(r.Re_p[1])}\quad(\rho_f=${n(f.rho_f)},\ \mu=${n(f.mu_mPas)}\ \mathrm{mPa\cdot s})`);
       L.push(String.raw`\dfrac{d_{pc1}}{d_{pc2}}=${n(r.ratio_cuts)}\ \text{ frente a }\ \dfrac{D_2}{D_1}=${n(r.ratio_D)}\ \ (\text{iguales solo en régimen de Stokes})`);
       if (r.fractions) L.push(String.raw`f_g=${n(r.fractions[0])}\%,\; f_m=${n(r.fractions[1])}\%,\; f_f=${n(r.fractions[2])}\%\ \text{(integrando la granulometría en masa, reparto uniforme en cada clase)}`);
-      box.innerHTML = `<b>📐 Procedimiento — ${c.name}</b>` + L.map((_, k) => `<div class="calc-step" id="calc-step-${k}"></div>`).join('');
+      box.innerHTML = `<b>📐 Procedimiento — ${esc(c.name)}</b>` + L.map((_, k) => `<div class="calc-step" id="calc-step-${k}"></div>`).join('');
       L.forEach((s, k) => tex($(`calc-step-${k}`), s, false));
     }
 
@@ -221,9 +237,16 @@
       recalc();
     });
     body.addEventListener('change', e => {
-      const t = e.target; if (!t.dataset || !t.dataset.key) return;
-      cases[+t.dataset.case][t.dataset.key] = t.value;
-      if (t.dataset.struct) render();
+      const t = e.target; if (!t.dataset || !t.dataset.key || !t.dataset.struct || !t.isConnected) return;   // los campos de texto ya se guardan con «input»
+      const c = cases[+t.dataset.case], k = t.dataset.key;
+      if (k === '__mat') { if (t.value) c.rho_p = t.value; }
+      else if (k === 'dU' || k === 'qU') {
+        // se convierte el valor escrito para que siga representando la misma magnitud
+        const table = k === 'dU' ? D_UNITS : Q_UNITS, from = table[c[k]], to = table[t.value];
+        (k === 'dU' ? ['D1', 'D2'] : ['Q']).forEach(f => { const v = num(c[f]); if (Number.isFinite(v)) c[f] = String(Number((v * from / to).toPrecision(6))); });
+        c[k] = t.value;
+      } else c[k] = t.value;
+      render();
     });
     body.addEventListener('click', e => {
       const b = e.target.closest('[data-act]'); if (!b) return;
@@ -243,6 +266,11 @@
       if (!notes || !notes.length) modal.classList.remove('open');
     }
 
+    $('btn-calc-pull').addEventListener('click', () => {
+      cases.push(Object.assign(newCase(cases.length + 1), ctx.getSimCase()));
+      stepsFor = cases.length - 1; render();
+      body.querySelector('.calc-scroll').scrollLeft = 99999;
+    });
     $('btn-calc-add').addEventListener('click', () => { cases.push(newCase(cases.length + 1)); render(); body.scrollLeft = body.scrollWidth; });
     $('btn-calc-example').addEventListener('click', () => {
       cases = [
@@ -255,12 +283,10 @@
     $('btn-calc-csv').addEventListener('click', () => {
       const q = s => `"${String(s).replace(/"/g, '""')}"`;
       const rows = [['Variable'].concat(cases.map(c => c.name))];
-      inputRows().forEach(([label, fn]) => {
-        if (!fn) return;
-        const keyRow = [label];
-        cases.forEach((c, i) => { const m = fn(i).match(/value="([^"]*)"/) || fn(i).match(/>([^<]+)<\/textarea>/); keyRow.push(m ? m[1] : ''); });
-        rows.push(keyRow);
-      });
+      [['Modo', 'mode'], ['ρp (kg/m³)', 'rho_p'], ['ψ', 'psi'], ['Alimentación (kg/h)', 'feed'], ['Granulometría en masa', 'psd'], ['Tamaños de interés (µm)', 'sizes'],
+        ['Fluido', 'fluid'], ['T (°C)', 'T'], ['Unidad de diámetros', 'dU'], ['D₁', 'D1'], ['D₂', 'D2'], ['Unidad de caudal', 'qU'], ['Q', 'Q'],
+        ['Corrección Re', 'corr'], ['d_pc1 objetivo (µm)', 'dpc1'], ['d_pc2 objetivo (µm)', 'dpc2'], ['Diámetro fijo', 'fix']].forEach(([label, key]) =>
+        rows.push([label].concat(cases.map(c => String(c[key]).replace(/\n/g, ' | ')))));
       OUT.forEach(([label, fn]) => { if (fn) rows.push([label].concat(cases.map(c => fn(c._r || {}).replace(/\n/g, ' | ')))); });
       const blob = new Blob(['﻿' + rows.map(r => r.map(q).join(',')).join('\n')], { type: 'text/csv;charset=utf-8' });
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'calculadora-elutriacion.csv'; a.click();
@@ -269,6 +295,6 @@
     $('btn-close-calc').addEventListener('click', () => modal.classList.remove('open'));
     modal.addEventListener('click', e => { if (e.target === modal) modal.classList.remove('open'); });
     window.addEventListener('keydown', e => { if (e.key === 'Escape') modal.classList.remove('open'); });
-    window.elutriadorCalc = { get cases() { return cases; }, solve, render };
+    window.elutriadorCalc = { get cases() { return cases; }, solve, render, toInput };
   };
 })();
