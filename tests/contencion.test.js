@@ -385,5 +385,19 @@ check('Agua: caudal acotado a 0.1–10 L/min', () => {
   assert.ok(Number.isFinite(sim.model.dpc_um[0]) && sim.model.dpc_um[0] > 0);
 });
 
+check('Alimentación: todo empieza en la tolva, nada entra hasta soltar y luego entra de forma continua', () => {
+  const sim = new S.Simulation({ rng: mulberry32(7) });
+  sim.loadHopper();
+  assert.ok(sim.particles.every(p => p.stage === 'hopper'));
+  for (let i = 0; i < 600; i++) sim.step(0.05);              // 30 s sin soltar
+  assert.ok(sim.particles.every(p => p.stage === 'hopper'), 'no debe entrar nada retenido');
+  sim.release(20);
+  for (let i = 0; i < 100; i++) sim.step(0.05);              // 5 s
+  const dentro5 = sim.particles.filter(p => p.stage !== 'hopper').length;
+  for (let i = 0; i < 300; i++) sim.step(0.05);              // 15 s más
+  const dentro20 = sim.particles.filter(p => p.stage !== 'hopper').length;
+  assert.ok(dentro5 > 0 && dentro20 > dentro5, `${dentro5} → ${dentro20}`);
+});
+
 console.log(failures ? `\n${failures} prueba(s) fallaron\n` : '\nTodas las pruebas pasaron\n');
 process.exit(failures ? 1 : 0);

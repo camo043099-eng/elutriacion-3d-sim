@@ -1500,6 +1500,13 @@
     }
     const refreshNumEntries = () => numEntries.forEach(f => f());
 
+    // Alimentación: las columnas empiezan vacías; al iniciar, la tolva suelta las partículas de forma continua
+    let running = false;
+    function restartFeed() {
+      sim.loadHopper();
+      if (running) sim.release(20);
+    }
+
     function updateUI() {
       const s = sim.state, m = sim.model;
       refreshNumEntries();
@@ -1676,7 +1683,7 @@
       renderLiveEquations();
     }));
 
-    $('btn-pulse').addEventListener('click', () => { sim.resetPulse(); updateMeasured(); });
+    $('btn-pulse').addEventListener('click', () => { restartFeed(); updateMeasured(); });
 
     function layoutPanels() {
       const bottom = document.querySelector('.top-bar').getBoundingClientRect().bottom;
@@ -2275,7 +2282,7 @@
     $('btn-open-charts').addEventListener('click', () => { chartsModal.classList.add('open'); updateLiveChartsModal(); });
     $('btn-close-charts').addEventListener('click', () => { chartsModal.classList.remove('open'); });
     $('btn-reset-charts').addEventListener('click', () => {
-      resetSeries(); sim.resetPulse(); updateMeasured(); updateLiveChartsModal();
+      resetSeries(); restartFeed(); updateMeasured(); updateLiveChartsModal();
     });
     [['tromp', cTromp, () => drawTrompChart()], ['stokes', cStokes, () => drawStokesChart()], ['timeline', cTimeline, () => drawTimelineChart()], ['histOut', cHistOut, () => drawHistOutChart()]]
       .forEach(([key, cv, redraw]) => {
@@ -2699,7 +2706,7 @@
       // El motor asigna los diámetros escaneados y recalcula v_t de cada partícula
       sim.setCustomFeed(scannedSolid.diameters_um, scannedSolid.sphericity);
       syncSliders();
-      sim.resetPulse();
+      restartFeed();
       updateUI();
       setRunning(true);   // «Ejecutar Elutriación»: aquí sí arranca
 
@@ -2716,7 +2723,7 @@
       sim.clearCustomFeed();
       $('badge-scan-live').style.display = 'none';$('scanned-status-card').style.display = 'none';
       apply({ Q_Lmin: sim.state.Q_Lmin });
-      sim.resetPulse();
+      restartFeed();
       updateUI();
     });
 
@@ -3020,7 +3027,7 @@
       $('chk-parabolic').checked = !!sim.state.parabolic;
       $('chk-dispersion').checked = !!sim.state.dispersion;
       $('chk-recorr').checked = !!sim.state.reCorrection;
-      sim.resetPulse();
+      restartFeed();
       // Limpia la dirección para que recargar no repita la configuración
       try { history.replaceState(null, '', location.pathname); } catch (e) { /* sin efecto */ }
     })();
@@ -3028,6 +3035,7 @@
     // =========================================================================
     // 5. BUCLE PRINCIPAL
     // =========================================================================
+    restartFeed();   // empieza sin partículas en las columnas: todas esperan en la tolva
     updateUI();
 
     let last = performance.now();
@@ -3035,9 +3043,8 @@
     let camLoopTimer = 0;
 
     // La simulación NO arranca sola: se configura el equipo y se pulsa «Iniciar»
-    let running = false;
     function setRunning(on) {
-      if (on && !running && sim.stats().n === 0) sim.resetPulse();
+      if (on && !running && sim.held) sim.release(20);
       running = on;
       syncRunUI();
     }

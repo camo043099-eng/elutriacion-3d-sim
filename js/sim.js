@@ -564,6 +564,30 @@
     this._resetMeasurement();
   };
 
+  /**
+   * Carga TODAS las partículas en la tolva, retenidas (sin soltar). Las columnas quedan vacías hasta
+   * que se llame a release(): entonces la tolva las deja entrar por la alimentación de forma continua.
+   */
+  Simulation.prototype.loadHopper = function () {
+    for (const p of this.particles) {
+      this._redraw(p);
+      this._toHopper(p, 0);
+      p.delay = Infinity;
+    }
+    this.held = true;
+    this._resetMeasurement();
+  };
+
+  /** Suelta las partículas retenidas repartiendo su entrada en `spread` segundos (alimentación continua). */
+  Simulation.prototype.release = function (spread) {
+    spread = spread > 0 ? spread : 20;
+    for (const p of this.particles) {
+      if (p.stage === 'hopper' && p.delay === Infinity) p.delay = this.rng() * spread;
+    }
+    this.held = false;
+    this._resetMeasurement();
+  };
+
   Simulation.prototype._initTracers = function (n) {
     this.tracers.length = 0;
     for (let i = 0; i < n; i++) {
