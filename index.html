@@ -1656,6 +1656,8 @@
     addNumEntry('slider-flow', 'L/min', 2, v => { apply({ Q_Lmin: v }); syncSliders(); }, () => sim.state.Q_Lmin);
     addNumEntry('slider-density', 'kg/m³', 0, v => { apply({ rho_p: Math.round(v) }); syncSliders(); }, () => sim.state.rho_p);
     addNumEntry('slider-visc', 'mPa·s', 4, v => { apply({ mu_mPas: v }); syncSliders(); }, () => sim.state.mu_mPas);
+    addNumEntry('slider-d1', 'cm', 2, v => { apply({ D1_cm: v }); syncSliders(); }, () => sim.state.D1_cm);
+    addNumEntry('slider-d2', 'cm', 2, v => { apply({ D2_cm: v }); syncSliders(); }, () => sim.state.D2_cm);
     refreshNumEntries();
 
     $('chk-parabolic').addEventListener('change', e => apply({ parabolic: e.target.checked }));

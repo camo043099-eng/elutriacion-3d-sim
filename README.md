@@ -138,7 +138,7 @@ Accesos rápidos: **Diseño Base (1.5 L/min)**, **Arrastre (3.0 L/min)** y los s
 ## 🧱 Materiales, fluido e inicio de la simulación
 
 - **Inicio manual:** la simulación abre en pausa. Configura fluido, caudal y sólido y pulsa **▶ Iniciar** (después **⏸ Pausar** / **▶ Reanudar**). «Conectar Datos al Simulador 3D y Ejecutar Elutriación» del escáner sí la arranca.
-- **Valor exacto:** caudal, densidad y viscosidad (y la densidad del escáner) tienen una casilla para escribir el valor; se acota al rango del deslizador.
+- **Valor exacto:** caudal, densidad, viscosidad, diámetros de columna (y la densidad del escáner) tienen una casilla para escribir el valor; se acota al rango del deslizador.
 - **Alimentación por tolva:** al abrir no hay partículas en las columnas; todas esperan en la tolva. Con **▶ Iniciar** la tolva las suelta de forma continua (~20 s para la carga inicial) y entran por la alimentación. «Reiniciar Pulso» las devuelve a la tolva.
 - **Curva de Tromp y ejes de tamaño:** el eje X se ajusta a los tamaños de las partículas de la simulación (uniforme o sólido escaneado) y a los diámetros de corte. La matriz de confusión da 100 % en el modelo ideal (cada partícula sigue exactamente la regla de Stokes); baja al activar el perfil parabólico o la dispersión axial.
 - **Fluido que entra:** **💧 Agua** (ρ_f = 1000 kg/m³, μ = 1 mPa·s, Q 0.1–10 L/min) o **💨 Aire** (ρ_f = 1.2 kg/m³, μ = 0.018 mPa·s, Q 10–400 L/min, corrección de Schiller–Naumann activada). Los rangos de los deslizadores y los presets cambian con el fluido; con aire la animación se escala para que se vea igual de fluida (solo cambia el tiempo mostrado).
